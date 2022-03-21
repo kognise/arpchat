@@ -25,4 +25,7 @@ pub enum ArpchatError {
 
     #[error("couldn't parse packet as ethernet")]
     EthParseFailed,
+
+    #[error("message too long to send")]
+    MsgTooLong,
 }

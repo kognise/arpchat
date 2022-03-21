@@ -11,10 +11,7 @@ use cursive::views::{
 use cursive::{Cursive, View};
 
 use crate::error::ArpchatError;
-use crate::net::{sorted_usable_interfaces, Channel, MAX_MSG_LEN};
-
-const MAX_USERNAME_LEN: usize = 16;
-const MAX_INNER_MSG_LEN: usize = MAX_MSG_LEN - MAX_USERNAME_LEN - 3;
+use crate::net::{sorted_usable_interfaces, Channel};
 
 enum UICommand {
     NewMessage(String),
@@ -27,6 +24,7 @@ enum UICommand {
 enum NetCommand {
     SendMessage(String),
     SwitchInterface(String),
+    Terminate,
 }
 
 fn init_app(siv: &mut Cursive, ui_tx: Sender<UICommand>) {
@@ -58,7 +56,6 @@ fn init_app(siv: &mut Cursive, ui_tx: Sender<UICommand>) {
             .child(
                 Panel::new(
                     EditView::new()
-                        .max_content_width(MAX_INNER_MSG_LEN)
                         .on_submit(move |siv, msg| {
                             siv.call_on_name("input", |input: &mut EditView| {
                                 input.set_content("");
@@ -118,17 +115,13 @@ fn show_username_dialog(siv: &mut Cursive, ui_tx: Sender<UICommand>, init_after:
             .title("Set Username")
             .content(
                 EditView::new()
-                    .content({
-                        let mut username = gethostname::gethostname()
+                    .content(
+                        gethostname::gethostname()
                             .to_string_lossy()
                             .split('.')
                             .next()
-                            .unwrap_or("")
-                            .to_string();
-                        username.truncate(MAX_USERNAME_LEN);
-                        username
-                    })
-                    .max_content_width(MAX_USERNAME_LEN)
+                            .unwrap_or(""),
+                    )
                     .on_submit({
                         let ui_tx = ui_tx.clone();
                         move |siv, username| {
@@ -163,7 +156,7 @@ fn show_username_dialog(siv: &mut Cursive, ui_tx: Sender<UICommand>, init_after:
 fn net_thread(tx: Sender<UICommand>, rx: Receiver<NetCommand>) {
     let mut channel: Option<Channel> = None;
 
-    loop {
+    'outer: loop {
         let res: Result<(), ArpchatError> = try {
             while let Ok(cmd) = rx.try_recv() {
                 match cmd {
@@ -181,6 +174,9 @@ fn net_thread(tx: Sender<UICommand>, rx: Receiver<NetCommand>) {
                             .find(|iface| iface.name == name)
                             .ok_or(ArpchatError::InvalidInterface(name))?;
                         channel = Some(Channel::from_interface(interface)?);
+                    }
+                    NetCommand::Terminate => {
+                        break 'outer;
                     }
                 }
             }
@@ -209,10 +205,11 @@ fn update_title(siv: &mut Cursive, username: &str, interface: &str) {
 
 pub fn run() {
     let (mut username, mut interface) = ("anonymous".to_string(), "".to_string());
+    let mut is_first_username = true;
 
     let (ui_tx, ui_rx) = unbounded::<UICommand>();
     let (net_tx, net_rx) = unbounded::<NetCommand>();
-    thread::spawn({
+    let net_thread = thread::spawn({
         let ui_tx = ui_tx.clone();
         move || net_thread(ui_tx, net_rx)
     });
@@ -237,6 +234,12 @@ pub fn run() {
                         username = new_username;
                     }
                     update_title(&mut siv, &username, &interface);
+                    if is_first_username {
+                        net_tx
+                            .send(NetCommand::SendMessage(format!("> {username} logged on")))
+                            .unwrap();
+                        is_first_username = false;
+                    }
                 }
                 UICommand::SwitchInterface(new_interface) => {
                     net_tx
@@ -248,7 +251,7 @@ pub fn run() {
                 UICommand::SendNickedMessage(msg) => {
                     if !msg.is_empty() {
                         net_tx
-                            .send(NetCommand::SendMessage(format!("[{}] {}", username, msg)))
+                            .send(NetCommand::SendMessage(format!("[{username}] {msg}")))
                             .unwrap();
                     }
                 }
@@ -265,4 +268,12 @@ pub fn run() {
         }
         siv.step();
     }
+
+    net_tx
+        .send(NetCommand::SendMessage(format!(
+            "> {username} disconnected"
+        )))
+        .unwrap();
+    net_tx.send(NetCommand::Terminate).unwrap();
+    net_thread.join().unwrap();
 }

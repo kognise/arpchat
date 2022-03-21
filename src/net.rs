@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use pnet::datalink::{
     Channel as DataLinkChannel, DataLinkReceiver, DataLinkSender, NetworkInterface,
 };
@@ -14,7 +16,9 @@ const ARP_START: &[u8] = &[
 ];
 const ARP_OPER: &[u8] = &[0, 1]; // Operation (Request)
 const MSG_PREFIX: &[u8] = b"uwu";
-pub const MAX_MSG_LEN: usize = u8::MAX as usize - MSG_PREFIX.len();
+
+// Seq is one byte and total is one byte, thus the `+ 2`.
+const MSG_PART_SIZE: usize = u8::MAX as usize - (MSG_PREFIX.len() + 2);
 
 pub fn sorted_usable_interfaces() -> Vec<NetworkInterface> {
     let mut interfaces = pnet::datalink::interfaces()
@@ -34,6 +38,16 @@ pub struct Channel {
     src_mac: MacAddr,
     tx: Box<dyn DataLinkSender>,
     rx: Box<dyn DataLinkReceiver>,
+
+    /// Buffer of received message parts, keyed by the number of parts.
+    /// This keying method is far from foolproof but reduces the chance
+    /// of colliding messages just a tiny bit.
+    ///
+    /// Each value is a Vec of its parts, and counts as a message when
+    /// every part is non-empty. There are probably several optimization
+    /// opportunities here, but c'mon, a naive approach is perfectly fine
+    /// for a program this cursed.
+    buffer: HashMap<u8, Vec<Vec<u8>>>,
 }
 
 impl Channel {
@@ -49,6 +63,7 @@ impl Channel {
             interface,
             tx,
             rx,
+            buffer: HashMap::new(),
         })
     }
 
@@ -57,13 +72,34 @@ impl Channel {
     }
 
     pub fn send_msg(&mut self, msg: &str) -> Result<(), ArpchatError> {
-        let data = [MSG_PREFIX, msg.as_bytes()].concat();
+        if msg.is_empty() {
+            return Ok(());
+        }
 
-        // The length of data has to fit in a u8. This limitation should also
+        let compressed = smaz::compress(msg.as_bytes());
+        let parts: Vec<&[u8]> = compressed.chunks(MSG_PART_SIZE).collect();
+        if parts.len() - 1 > u8::MAX as usize {
+            return Err(ArpchatError::MsgTooLong);
+        }
+
+        let total = (parts.len() - 1) as u8;
+        for (seq, part) in parts.into_iter().enumerate() {
+            self.send_msg_part(seq as u8, total, part)?;
+        }
+
+        Ok(())
+    }
+
+    /// Send part of a message. Seq should be 0 for the **last** part,
+    /// otherwise it should increase up to 255 and stay there.
+    fn send_msg_part(&mut self, seq: u8, total: u8, data: &[u8]) -> Result<(), ArpchatError> {
+        let data = [MSG_PREFIX, &[seq, total], data].concat();
+
+        // The length of the data must fit in a u8. This should also
         // guarantee that we'll be inside the MTU.
-        assert!(
+        debug_assert!(
             data.len() <= u8::MAX as usize,
-            "Data is too large ({} > {})",
+            "Part data is too large ({} > {})",
             data.len(),
             u8::MAX
         );
@@ -103,7 +139,7 @@ impl Channel {
         // Early filter for packets that aren't relevant.
         if packet.get_ethertype() != EtherTypes::Arp
             || &packet.payload()[6..8] != ARP_OPER
-            || &packet.payload()[0..5] != ARP_START
+            || &packet.payload()[..5] != ARP_START
         {
             return Ok(None);
         }
@@ -114,6 +150,31 @@ impl Channel {
             return Ok(None);
         }
 
-        Ok(String::from_utf8(data[MSG_PREFIX.len()..].to_vec()).ok())
+        if let [seq, total, ref compressed @ ..] = data[MSG_PREFIX.len()..] {
+            if let Some(parts) = self.buffer.get_mut(&total) {
+                parts[seq as usize] = compressed.to_vec();
+            } else {
+                let mut parts = vec![vec![]; total as usize + 1];
+                parts[seq as usize] = compressed.to_vec();
+                self.buffer.insert(total, parts);
+            }
+
+            // SAFETY: Guaranteed to be filled because it's populated directly above.
+            let parts = unsafe { self.buffer.get(&total).unwrap_unchecked() };
+
+            if parts.iter().all(|p| !p.is_empty()) {
+                match smaz::decompress(&parts.concat()) {
+                    Ok(raw_str) => {
+                        self.buffer.remove(&total);
+                        Ok(String::from_utf8(raw_str).ok())
+                    }
+                    Err(_) => Ok(None),
+                }
+            } else {
+                Ok(None)
+            }
+        } else {
+            Ok(None)
+        }
     }
 }

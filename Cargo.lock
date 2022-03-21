@@ -30,6 +30,7 @@ dependencies = [
  "cursive",
  "gethostname",
  "pnet",
+ "smaz",
  "thiserror",
 ]
 
@@ -633,6 +634,15 @@ name = "smallvec"
 version = "1.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f2dd574626839106c320a323308629dcb1acfc96e32a8cba364ddc61ac23ee83"
+
+[[package]]
+name = "smaz"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1f9ecc6775a24d971affc5b0e8549207ff53cf80eb661592165d67e0170a1fb0"
+dependencies = [
+ "lazy_static",
+]
 
 [[package]]
 name = "stable_deref_trait"

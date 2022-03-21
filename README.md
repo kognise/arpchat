@@ -28,6 +28,14 @@ then just run the binary in a terminal. you know it's working properly if you ca
 
 have any issues? that really sucks. you can make an issue if it pleases you.
 
+## things i made arpchat do
+
+you can send messages tens of thousands of characters long because i implemented a naive chunked transport protocol and added some compression.
+
+join and leave messages are a thing as well.
+
+i'm planning on experimenting with and adding settings for different arp packet types, since some routers might filter out the malformed ip packets i'm currently using.
+
 ![banner](https://doggo.ninja/fH9GKt.png)
 
 ## building
@@ -39,5 +47,3 @@ on windows, download the [WinPcap Developer's Pack](https://crates.io/crates/pne
 ```sh
 cargo build
 ```
-
-i'm planning on experimenting with and adding settings for different arp packet types, since some routers might filter out the malformed ip packets i'm currently using.
