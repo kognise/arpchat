@@ -21,7 +21,7 @@ pub fn sorted_usable_interfaces() -> Vec<NetworkInterface> {
             iface.is_broadcast()
                 && iface.is_up()
                 && iface.mac.is_some()
-                && iface.is_running()
+                && if cfg!(unix) { iface.is_running() } else { true }
                 && !iface.ips.is_empty()
         })
         .collect::<Vec<NetworkInterface>>();
