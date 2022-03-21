@@ -77,7 +77,15 @@ fn show_iface_dialog(siv: &mut Cursive, ui_tx: Sender<UICommand>) {
                 SelectView::new()
                     .with_all(sorted_usable_interfaces().into_iter().map(|iface| {
                         (
-                            format!("{} - {}", iface.name, iface.mac.unwrap()),
+                            format!(
+                                "{} - {}",
+                                if iface.description.is_empty() {
+                                    &iface.name
+                                } else {
+                                    &iface.description
+                                },
+                                iface.mac.unwrap(),
+                            ),
                             iface.name,
                         )
                     }))
