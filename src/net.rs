@@ -5,6 +5,8 @@ use pnet::packet::ethernet::{EtherTypes, EthernetPacket, MutableEthernetPacket};
 use pnet::packet::Packet;
 use pnet::util::MacAddr;
 
+use crate::error::ArpchatError;
+
 const ARP_START: &[u8] = &[
     0, 1, // Hardware Type (Ethernet)
     8, 0, // Protocol Type (IPv4)
@@ -35,26 +37,26 @@ pub struct Channel {
 }
 
 impl Channel {
-    pub fn from_interface(interface: NetworkInterface) -> Self {
+    pub fn from_interface(interface: NetworkInterface) -> Result<Self, ArpchatError> {
         let (tx, rx) = match pnet::datalink::channel(&interface, Default::default()) {
             Ok(DataLinkChannel::Ethernet(tx, rx)) => (tx, rx),
-            Ok(_) => panic!("Unknown channel type"),
-            Err(e) => panic!("Error getting channel: {e}"),
+            Ok(_) => return Err(ArpchatError::UnknownChannelType),
+            Err(e) => return Err(ArpchatError::ChannelError(e)),
         };
 
-        Self {
-            src_mac: interface.mac.unwrap(),
+        Ok(Self {
+            src_mac: interface.mac.ok_or(ArpchatError::NoMAC)?,
             interface,
             tx,
             rx,
-        }
+        })
     }
 
     pub fn interface_name(&self) -> String {
         self.interface.name.clone()
     }
 
-    pub fn send_msg(&mut self, msg: &str) {
+    pub fn send_msg(&mut self, msg: &str) -> Result<(), ArpchatError> {
         let data = [MSG_PREFIX, msg.as_bytes()].concat();
 
         // The length of data has to fit in a u8. This limitation should also
@@ -78,36 +80,41 @@ impl Channel {
         .concat();
 
         let mut eth_buffer = vec![0; 14 + arp_buffer.len()];
-        let mut eth_packet = MutableEthernetPacket::new(&mut eth_buffer).unwrap();
+        let mut eth_packet =
+            MutableEthernetPacket::new(&mut eth_buffer).ok_or(ArpchatError::ARPSerializeFailed)?;
         eth_packet.set_destination(MacAddr::broadcast());
         eth_packet.set_source(self.src_mac);
         eth_packet.set_ethertype(EtherTypes::Arp);
         eth_packet.set_payload(&arp_buffer);
 
-        self.tx.send_to(eth_packet.packet(), None).unwrap().unwrap();
+        self.tx
+            .send_to(eth_packet.packet(), None)
+            .ok_or(ArpchatError::ARPSendFailed)?
+            .map_err(|_| ArpchatError::ARPSendFailed)?;
+        Ok(())
     }
 
-    pub fn try_recv_msg(&mut self) -> Option<String> {
-        let packet = self
-            .rx
-            .next()
-            .unwrap_or_else(|e| panic!("Unable to capture packet: {e}"));
-        let packet = EthernetPacket::new(packet).unwrap();
+    pub fn try_recv_msg(&mut self) -> Result<Option<String>, ArpchatError> {
+        let packet = self.rx.next().map_err(|_| ArpchatError::CaptureFailed)?;
+        let packet = match EthernetPacket::new(packet) {
+            Some(packet) => packet,
+            None => return Ok(None),
+        };
 
         // Early filter for packets that aren't relevant.
         if packet.get_ethertype() != EtherTypes::Arp
             || &packet.payload()[6..8] != ARP_OPER
             || &packet.payload()[0..5] != ARP_START
         {
-            return None;
+            return Ok(None);
         }
 
         let data_len = packet.payload()[5] as usize;
         let data = &packet.payload()[14..14 + data_len];
         if &data[..MSG_PREFIX.len()] != MSG_PREFIX {
-            return None;
+            return Ok(None);
         }
 
-        String::from_utf8(data[MSG_PREFIX.len()..].to_vec()).ok()
+        Ok(String::from_utf8(data[MSG_PREFIX.len()..].to_vec()).ok())
     }
 }

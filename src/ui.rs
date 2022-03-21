@@ -10,6 +10,7 @@ use cursive::views::{
 };
 use cursive::{Cursive, View};
 
+use crate::error::ArpchatError;
 use crate::net::{sorted_usable_interfaces, Channel, MAX_MSG_LEN};
 
 enum UICommand {
@@ -17,6 +18,7 @@ enum UICommand {
     SendNickedMessage(String),
     UpdateUsername(String),
     SwitchInterface(String),
+    Error(ArpchatError),
 }
 
 enum NetCommand {
@@ -155,32 +157,38 @@ fn net_thread(tx: Sender<UICommand>, rx: Receiver<NetCommand>) {
     let mut channel: Option<Channel> = None;
 
     loop {
-        while let Ok(cmd) = rx.try_recv() {
-            match cmd {
-                NetCommand::SendMessage(msg) => {
-                    if let Some(ref mut channel) = channel {
-                        channel.send_msg(if msg.len() > MAX_MSG_LEN {
-                            &msg[..MAX_MSG_LEN]
-                        } else {
-                            &msg
-                        });
+        let res: Result<(), ArpchatError> = try {
+            while let Ok(cmd) = rx.try_recv() {
+                match cmd {
+                    NetCommand::SendMessage(msg) => {
+                        if let Some(ref mut channel) = channel {
+                            channel.send_msg(if msg.len() > MAX_MSG_LEN {
+                                &msg[..MAX_MSG_LEN]
+                            } else {
+                                &msg
+                            })?;
+                        }
                     }
-                }
-                NetCommand::SwitchInterface(name) => {
-                    if let Some(ref channel) = channel && channel.interface_name() == name {
+                    NetCommand::SwitchInterface(name) => {
+                        if let Some(ref channel) = channel && channel.interface_name() == name {
                         continue;
                     }
-                    let interface = sorted_usable_interfaces()
-                        .into_iter()
-                        .find(|iface| iface.name == name)
-                        .unwrap_or_else(|| panic!("Invalid interface {}", name));
-                    channel = Some(Channel::from_interface(interface));
+                        let interface = sorted_usable_interfaces()
+                            .into_iter()
+                            .find(|iface| iface.name == name)
+                            .ok_or(ArpchatError::InvalidInterface(name))?;
+                        channel = Some(Channel::from_interface(interface)?);
+                    }
                 }
             }
-        }
 
-        if let Some(ref mut channel) = channel && let Some(msg) = channel.try_recv_msg() {
-			tx.send(UICommand::NewMessage(msg)).unwrap();
+            if let Some(ref mut channel) = channel && let Some(msg) = channel.try_recv_msg()? {
+                tx.send(UICommand::NewMessage(msg)).unwrap();
+            }
+        };
+        if let Err(err) = res {
+            tx.send(UICommand::Error(err)).unwrap();
+            break;
         }
     }
 }
@@ -240,6 +248,14 @@ pub fn run() {
                             .send(NetCommand::SendMessage(format!("[{}] {}", username, msg)))
                             .unwrap();
                     }
+                }
+                UICommand::Error(err) => {
+                    siv.add_layer(
+                        Dialog::text(err.to_string())
+                            .title("Error!")
+                            .button("Exit", |siv| siv.quit()),
+                    );
+                    break;
                 }
             }
             siv.refresh();

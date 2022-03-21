@@ -8,3 +8,4 @@ crossbeam-channel = "0.5.4"
 cursive = { version = "0.17.0", default_features = false, features = ["toml", "crossterm-backend"] }
 gethostname = "0.2.3"
 pnet = "0.29.0"
+thiserror = "1.0.30"
