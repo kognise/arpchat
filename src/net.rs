@@ -18,11 +18,7 @@ pub fn sorted_usable_interfaces() -> Vec<NetworkInterface> {
     let mut interfaces = pnet::datalink::interfaces()
         .into_iter()
         .filter(|iface| {
-            iface.is_broadcast()
-                && iface.is_up()
-                && iface.mac.is_some()
-                && if cfg!(unix) { iface.is_running() } else { true }
-                && !iface.ips.is_empty()
+            iface.is_broadcast() && iface.is_up() && iface.mac.is_some() && !iface.ips.is_empty()
         })
         .collect::<Vec<NetworkInterface>>();
 
