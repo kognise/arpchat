@@ -28,6 +28,8 @@ then just run the binary in a terminal. you know it's working properly if you ca
 
 have any issues? that really sucks. you can make an issue if it pleases you.
 
+![banner](https://doggo.ninja/fH9GKt.png)
+
 ## building
 
 you don't really want to build this. anyway, it's tested on the latest unstable rust.
