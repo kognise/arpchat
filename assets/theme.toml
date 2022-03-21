@@ -1,0 +1,18 @@
+borders = "simple"
+shadow = false
+
+[colors]
+background = ["#000000", "000", "black"]
+shadow = ["111", "black"]
+view = ["#000000", "000", "black"]
+
+primary = ["#abb2bf", "white"]
+secondary = ["#61c8ff", "blue"]
+tertiary = ["#ffffff", "white"]
+
+title_primary = ["#d6135b", "red"]
+title_secondary = ["#d19a66", "yellow"]
+
+highlight = ["#d6135b", "red"]
+highlight_inactive = ["#61c8ff", "blue"]
+highlight_text = ["#ffffff", "white"]

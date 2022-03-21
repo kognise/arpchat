@@ -1,0 +1,9 @@
+[package]
+edition = "2021"
+name = "arpchat"
+version = "0.1.0"
+
+[dependencies]
+crossbeam-channel = "0.5.4"
+cursive = { version = "0.17.0", features = ["toml"] }
+pnet = "0.29.0"
