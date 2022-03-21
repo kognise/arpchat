@@ -17,9 +17,7 @@ pub const MAX_MSG_LEN: usize = u8::MAX as usize - MSG_PREFIX.len();
 pub fn sorted_usable_interfaces() -> Vec<NetworkInterface> {
     let mut interfaces = pnet::datalink::interfaces()
         .into_iter()
-        .filter(|iface| {
-            iface.is_broadcast() && iface.is_up() && iface.mac.is_some() && !iface.ips.is_empty()
-        })
+        .filter(|iface| iface.mac.is_some() && !iface.ips.is_empty())
         .collect::<Vec<NetworkInterface>>();
 
     // Sort interfaces by descending number of IPs.
@@ -59,8 +57,8 @@ impl Channel {
     pub fn send_msg(&mut self, msg: String) {
         let data = [MSG_PREFIX, msg.as_bytes()].concat();
 
-        // The length of data has to fit in a u8. This limitation also guarantees
-        // that we'll always be inside the MTU.
+        // The length of data has to fit in a u8. This limitation should also
+        // guarantee that we'll be inside the MTU.
         assert!(
             data.len() <= u8::MAX as usize,
             "Data is too large ({} > {})",
