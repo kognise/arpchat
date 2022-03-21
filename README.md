@@ -34,10 +34,10 @@ have any issues? that really sucks. you can make an issue if it pleases you.
 
 you don't really want to build this. anyway, it's tested on the latest unstable rust.
 
-on windows, download the [WinPcap Developer's Pack](https://crates.io/crates/pnet#:~:text=WinPcap%20Developers%20pack) and set the `LIB` environment variable to the `WpdPack/Lib/x64/Packet.lib` folder.
+on windows, download the [WinPcap Developer's Pack](https://crates.io/crates/pnet#:~:text=WinPcap%20Developers%20pack) and set the `LIB` environment variable to the `WpdPack/Lib/x64/` folder.
 
 ```sh
 cargo build
 ```
 
-i'm planning on experimenting with and adding settings for different arp packet types, since some routers might filter out the malformed packets i'm currently using.
+i'm planning on experimenting with and adding settings for different arp packet types, since some routers might filter out the malformed ip packets i'm currently using.
