@@ -1,11 +1,13 @@
 use std::collections::HashMap;
+use std::fmt::Debug;
 
 use pnet::datalink::{
     Channel as DataLinkChannel, DataLinkReceiver, DataLinkSender, NetworkInterface,
 };
 use pnet::packet::ethernet::{EtherTypes, EthernetPacket, MutableEthernetPacket};
-use pnet::packet::Packet;
+use pnet::packet::Packet as PnetPacket;
 use pnet::util::MacAddr;
+use rand::Rng;
 
 use crate::error::ArpchatError;
 
@@ -15,10 +17,52 @@ const ARP_START: &[u8] = &[
     6, // Hardware Address Length
 ];
 const ARP_OPER: &[u8] = &[0, 1]; // Operation (Request)
-const MSG_PREFIX: &[u8] = b"uwu";
+const PACKET_PREFIX: &[u8] = b"uwu";
 
-// Seq is one byte and total is one byte, thus the `+ 2`.
-const MSG_PART_SIZE: usize = u8::MAX as usize - (MSG_PREFIX.len() + 2);
+// Tag, seq, and total, are each one byte, thus the `+ 3`.
+const PACKET_PART_SIZE: usize = u8::MAX as usize - (PACKET_PREFIX.len() + 3);
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Packet {
+    Message(String),
+    PresenceReq,
+    Presence,
+    Disconnect,
+}
+
+impl Packet {
+    fn tag(&self) -> u8 {
+        match self {
+            Packet::Message(_) => 0,
+            Packet::PresenceReq => 1,
+            Packet::Presence => 2,
+            Packet::Disconnect => 3,
+        }
+    }
+
+    fn deserialize(tag: u8, data: &[u8]) -> Option<Self> {
+        match tag {
+            0 => {
+                let raw_str = smaz::decompress(data).ok()?;
+                let str = String::from_utf8(raw_str).ok()?;
+                Some(Packet::Message(str))
+            }
+            1 => Some(Packet::PresenceReq),
+            2 => Some(Packet::Presence),
+            3 => Some(Packet::Disconnect),
+            _ => None,
+        }
+    }
+
+    fn serialize(&self) -> Vec<u8> {
+        match self {
+            Packet::Message(msg) => smaz::compress(msg.as_bytes()),
+            Packet::PresenceReq => vec![],
+            Packet::Presence => vec![],
+            Packet::Disconnect => vec![],
+        }
+    }
+}
 
 pub fn sorted_usable_interfaces() -> Vec<NetworkInterface> {
     let mut interfaces = pnet::datalink::interfaces()
@@ -39,15 +83,18 @@ pub struct Channel {
     tx: Box<dyn DataLinkSender>,
     rx: Box<dyn DataLinkReceiver>,
 
-    /// Buffer of received message parts, keyed by the number of parts.
-    /// This keying method is far from foolproof but reduces the chance
-    /// of colliding messages just a tiny bit.
+    id: [u8; 8],
+    online: HashMap<[u8; 8], String>,
+
+    /// Buffer of received packet parts, keyed by the number of parts and
+    /// its tag. This keying method is far from foolproof but reduces
+    /// the chance of colliding packets just a tiny bit.
     ///
-    /// Each value is a Vec of its parts, and counts as a message when
+    /// Each value is the Vec of its parts, and counts as a packet when
     /// every part is non-empty. There are probably several optimization
     /// opportunities here, but c'mon, a naive approach is perfectly fine
     /// for a program this cursed.
-    buffer: HashMap<u8, Vec<Vec<u8>>>,
+    buffer: HashMap<(u8, u8), Vec<Vec<u8>>>,
 }
 
 impl Channel {
@@ -63,6 +110,8 @@ impl Channel {
             interface,
             tx,
             rx,
+            id: rand::thread_rng().gen(),
+            online: HashMap::new(),
             buffer: HashMap::new(),
         })
     }
@@ -71,29 +120,23 @@ impl Channel {
         self.interface.name.clone()
     }
 
-    pub fn send_msg(&mut self, msg: &str) -> Result<(), ArpchatError> {
-        if msg.is_empty() {
-            return Ok(());
-        }
-
-        let compressed = smaz::compress(msg.as_bytes());
-        let parts: Vec<&[u8]> = compressed.chunks(MSG_PART_SIZE).collect();
+    pub fn send(&mut self, packet: Packet) -> Result<(), ArpchatError> {
+        let data = packet.serialize();
+        let parts: Vec<&[u8]> = data.chunks(PACKET_PART_SIZE).collect();
         if parts.len() - 1 > u8::MAX as usize {
             return Err(ArpchatError::MsgTooLong);
         }
 
         let total = (parts.len() - 1) as u8;
         for (seq, part) in parts.into_iter().enumerate() {
-            self.send_msg_part(seq as u8, total, part)?;
+            self.send_part(packet.tag(), seq as u8, total, part)?;
         }
 
         Ok(())
     }
 
-    /// Send part of a message. Seq should be 0 for the **last** part,
-    /// otherwise it should increase up to 255 and stay there.
-    fn send_msg_part(&mut self, seq: u8, total: u8, data: &[u8]) -> Result<(), ArpchatError> {
-        let data = [MSG_PREFIX, &[seq, total], data].concat();
+    fn send_part(&mut self, tag: u8, seq: u8, total: u8, part: &[u8]) -> Result<(), ArpchatError> {
+        let data = &[PACKET_PREFIX, &[tag, seq, total], part].concat();
 
         // The length of the data must fit in a u8. This should also
         // guarantee that we'll be inside the MTU.
@@ -109,9 +152,9 @@ impl Channel {
             &[data.len() as u8], // Protocol Address Length
             ARP_OPER,
             &self.src_mac.octets(), // Sender hardware address
-            &data,                  // Sender protocol address
+            data,                   // Sender protocol address
             &[0; 6],                // Target hardware address
-            &data,                  // Target protocol address
+            data,                   // Target protocol address
         ]
         .concat();
 
@@ -129,7 +172,7 @@ impl Channel {
         }
     }
 
-    pub fn try_recv_msg(&mut self) -> Result<Option<String>, ArpchatError> {
+    pub fn try_recv(&mut self) -> Result<Option<Packet>, ArpchatError> {
         let packet = self.rx.next().map_err(|_| ArpchatError::CaptureFailed)?;
         let packet = match EthernetPacket::new(packet) {
             Some(packet) => packet,
@@ -146,30 +189,30 @@ impl Channel {
 
         let data_len = packet.payload()[5] as usize;
         let data = &packet.payload()[14..14 + data_len];
-        if &data[..MSG_PREFIX.len()] != MSG_PREFIX {
+        if !data.starts_with(PACKET_PREFIX) {
             return Ok(None);
         }
 
-        if let [seq, total, ref compressed @ ..] = data[MSG_PREFIX.len()..] {
-            if let Some(parts) = self.buffer.get_mut(&total) {
-                parts[seq as usize] = compressed.to_vec();
+        if let &[tag, seq, total, ref inner @ ..] = &data[PACKET_PREFIX.len()..] {
+            let key = (tag, total);
+
+            if let Some(parts) = self.buffer.get_mut(&key) {
+                parts[seq as usize] = inner.to_vec();
             } else {
                 let mut parts = vec![vec![]; total as usize + 1];
-                parts[seq as usize] = compressed.to_vec();
-                self.buffer.insert(total, parts);
+                parts[seq as usize] = inner.to_vec();
+                self.buffer.insert(key, parts);
             }
 
-            // SAFETY: Guaranteed to be filled because it's populated directly above.
-            let parts = unsafe { self.buffer.get(&total).unwrap_unchecked() };
+            // SAFETY: Guaranteed to exist because it's populated directly above.
+            let parts = unsafe { self.buffer.get(&key).unwrap_unchecked() };
 
             if parts.iter().all(|p| !p.is_empty()) {
-                match smaz::decompress(&parts.concat()) {
-                    Ok(raw_str) => {
-                        self.buffer.remove(&total);
-                        Ok(String::from_utf8(raw_str).ok())
-                    }
-                    Err(_) => Ok(None),
+                let packet = Packet::deserialize(tag, &parts.concat());
+                if packet.is_some() {
+                    self.buffer.remove(&key);
                 }
+                Ok(packet)
             } else {
                 Ok(None)
             }

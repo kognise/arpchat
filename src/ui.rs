@@ -11,7 +11,7 @@ use cursive::views::{
 use cursive::{Cursive, View};
 
 use crate::error::ArpchatError;
-use crate::net::{sorted_usable_interfaces, Channel};
+use crate::net::{sorted_usable_interfaces, Channel, Packet};
 
 enum UICommand {
     NewMessage(String),
@@ -162,7 +162,7 @@ fn net_thread(tx: Sender<UICommand>, rx: Receiver<NetCommand>) {
                 match cmd {
                     NetCommand::SendMessage(msg) => {
                         if let Some(ref mut channel) = channel {
-                            channel.send_msg(&msg)?;
+                            channel.send(Packet::Message(msg))?;
                         }
                     }
                     NetCommand::SwitchInterface(name) => {
@@ -181,7 +181,7 @@ fn net_thread(tx: Sender<UICommand>, rx: Receiver<NetCommand>) {
                 }
             }
 
-            if let Some(ref mut channel) = channel && let Some(msg) = channel.try_recv_msg()? {
+            if let Some(ref mut channel) = channel && let Some(Packet::Message(msg)) = channel.try_recv()? {
                 tx.send(UICommand::NewMessage(msg)).unwrap();
             }
         };
