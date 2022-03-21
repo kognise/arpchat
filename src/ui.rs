@@ -105,6 +105,13 @@ fn show_username_dialog(siv: &mut Cursive, ui_tx: Sender<UICommand>, init_after:
             .title("Set Username")
             .content(
                 EditView::new()
+                    .content(
+                        gethostname::gethostname()
+                            .to_string_lossy()
+                            .split('.')
+                            .next()
+                            .unwrap_or(""),
+                    )
                     .on_submit({
                         let ui_tx = ui_tx.clone();
                         move |siv, username| {
@@ -144,7 +151,11 @@ fn net_thread(tx: Sender<UICommand>, rx: Receiver<NetCommand>) {
             match cmd {
                 NetCommand::SendMessage(msg) => {
                     if let Some(ref mut channel) = channel {
-                        channel.send_msg(&msg[..MAX_MSG_LEN]);
+                        channel.send_msg(if msg.len() > MAX_MSG_LEN {
+                            &msg[..MAX_MSG_LEN]
+                        } else {
+                            &msg
+                        });
                     }
                 }
                 NetCommand::SwitchInterface(name) => {

@@ -6,4 +6,5 @@ version = "0.1.0"
 [dependencies]
 crossbeam-channel = "0.5.4"
 cursive = { version = "0.17.0", default_features = false, features = ["toml", "crossterm-backend"] }
+gethostname = "0.2.3"
 pnet = "0.29.0"
