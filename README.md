@@ -12,11 +12,15 @@ i thought it would be a great idea to hijack it to make a tui chat app :)
 2. i'm completely insane
 3. i'm a programmer
 
+(i swear, i might actually briefly have a use for this! it might not be entirely useless! ... and other lies i tell myself)
+
 ## limitations
 
 yes
 
 ## running
+
+if you actually want to install this for some reason, you can get it from [the releases page](https://github.com/kognise/arpchat/releases/latest).
 
 on windows, you probably need [npcap](https://npcap.com/#download). make sure you check "Install Npcap in WinPcap API-compatible Mode" in the installer!
 
