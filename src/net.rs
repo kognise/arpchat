@@ -87,11 +87,10 @@ impl Channel {
         eth_packet.set_ethertype(EtherTypes::Arp);
         eth_packet.set_payload(&arp_buffer);
 
-        self.tx
-            .send_to(eth_packet.packet(), None)
-            .ok_or(ArpchatError::ARPSendFailed)?
-            .map_err(|_| ArpchatError::ARPSendFailed)?;
-        Ok(())
+        match self.tx.send_to(eth_packet.packet(), None) {
+            Some(Ok(())) => Ok(()),
+            _ => Err(ArpchatError::ARPSendFailed),
+        }
     }
 
     pub fn try_recv_msg(&mut self) -> Result<Option<String>, ArpchatError> {

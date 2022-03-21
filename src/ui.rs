@@ -13,6 +13,9 @@ use cursive::{Cursive, View};
 use crate::error::ArpchatError;
 use crate::net::{sorted_usable_interfaces, Channel, MAX_MSG_LEN};
 
+const MAX_USERNAME_LEN: usize = 16;
+const MAX_INNER_MSG_LEN: usize = MAX_MSG_LEN - MAX_USERNAME_LEN - 3;
+
 enum UICommand {
     NewMessage(String),
     SendNickedMessage(String),
@@ -55,7 +58,7 @@ fn init_app(siv: &mut Cursive, ui_tx: Sender<UICommand>) {
             .child(
                 Panel::new(
                     EditView::new()
-                        .max_content_width(MAX_MSG_LEN)
+                        .max_content_width(MAX_INNER_MSG_LEN)
                         .on_submit(move |siv, msg| {
                             siv.call_on_name("input", |input: &mut EditView| {
                                 input.set_content("");
@@ -115,13 +118,17 @@ fn show_username_dialog(siv: &mut Cursive, ui_tx: Sender<UICommand>, init_after:
             .title("Set Username")
             .content(
                 EditView::new()
-                    .content(
-                        gethostname::gethostname()
+                    .content({
+                        let mut username = gethostname::gethostname()
                             .to_string_lossy()
                             .split('.')
                             .next()
-                            .unwrap_or(""),
-                    )
+                            .unwrap_or("")
+                            .to_string();
+                        username.truncate(MAX_USERNAME_LEN);
+                        username
+                    })
+                    .max_content_width(MAX_USERNAME_LEN)
                     .on_submit({
                         let ui_tx = ui_tx.clone();
                         move |siv, username| {
@@ -162,11 +169,7 @@ fn net_thread(tx: Sender<UICommand>, rx: Receiver<NetCommand>) {
                 match cmd {
                     NetCommand::SendMessage(msg) => {
                         if let Some(ref mut channel) = channel {
-                            channel.send_msg(if msg.len() > MAX_MSG_LEN {
-                                &msg[..MAX_MSG_LEN]
-                            } else {
-                                &msg
-                            })?;
+                            channel.send_msg(&msg)?;
                         }
                     }
                     NetCommand::SwitchInterface(name) => {
