@@ -5,5 +5,5 @@ version = "0.1.0"
 
 [dependencies]
 crossbeam-channel = "0.5.4"
-cursive = { version = "0.17.0", features = ["toml"] }
+cursive = { version = "0.17.0", features = ["toml", "crossterm-backend"] }
 pnet = "0.29.0"
