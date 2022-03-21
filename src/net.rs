@@ -56,7 +56,7 @@ impl Channel {
         self.interface.name.clone()
     }
 
-    pub fn send_msg(&mut self, msg: String) {
+    pub fn send_msg(&mut self, msg: &str) {
         let data = [MSG_PREFIX, msg.as_bytes()].concat();
 
         // The length of data has to fit in a u8. This limitation also guarantees

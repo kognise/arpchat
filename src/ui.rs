@@ -144,7 +144,7 @@ fn net_thread(tx: Sender<UICommand>, rx: Receiver<NetCommand>) {
             match cmd {
                 NetCommand::SendMessage(msg) => {
                     if let Some(ref mut channel) = channel {
-                        channel.send_msg(msg);
+                        channel.send_msg(&msg[..MAX_MSG_LEN]);
                     }
                 }
                 NetCommand::SwitchInterface(name) => {
