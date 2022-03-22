@@ -20,7 +20,7 @@ enum UICommand {
     SendMessage(String),
     SetInterface(String),
     NewMessage(String, Id, String),
-    NewPresence(Id, String),
+    NewPresence(Id, bool, String),
     UpdatePresence(Id, String, String),
     RemovePresence(Id, String),
     Error(ArpchatError),
@@ -119,8 +119,7 @@ fn show_iface_dialog(siv: &mut Cursive, ui_tx: Sender<UICommand>) {
                     })
                     .with_name("iface_select"),
             )
-            .full_width()
-            .max_width(32),
+            .min_width(32),
     );
 }
 
@@ -179,6 +178,7 @@ fn net_thread(tx: Sender<UICommand>, rx: Receiver<NetCommand>) {
     let mut username: String = "".to_string();
     let mut channel: Option<Channel> = None;
     let mut online: HashMap<Id, String> = HashMap::new();
+    let mut is_join = true;
 
     loop {
         let res: Result<(), ArpchatError> = try {
@@ -219,14 +219,26 @@ fn net_thread(tx: Sender<UICommand>, rx: Receiver<NetCommand>) {
                     tx.send(UICommand::NewMessage(username, id, msg)).unwrap()
                 }
                 Some(Packet::PresenceReq) => {
-                    channel.send(Packet::Presence(id, username.clone()))?;
+                    channel.send(Packet::Presence(
+                        id,
+                        // First time we send a presence, we're joining.
+                        if is_join {
+                            is_join = false;
+                            true
+                        } else {
+                            false
+                        },
+                        username.clone(),
+                    ))?;
                 }
-                Some(Packet::Presence(id, new_username)) => {
+                Some(Packet::Presence(id, is_join, new_username)) => {
                     match online.insert(id, new_username.clone()) {
                         Some(old_username) => tx
                             .send(UICommand::UpdatePresence(id, old_username, new_username))
                             .unwrap(),
-                        None => tx.send(UICommand::NewPresence(id, new_username)).unwrap(),
+                        None => tx
+                            .send(UICommand::NewPresence(id, is_join, new_username))
+                            .unwrap(),
                     }
                 }
                 Some(Packet::Disconnect(id)) => {
@@ -311,13 +323,15 @@ pub fn run() {
                         net_tx.send(NetCommand::SendMessage(msg)).unwrap();
                     }
                 }
-                UICommand::NewPresence(id, username) => {
-                    siv.call_on_name("chat_inner", |chat_inner: &mut LinearLayout| {
-                        chat_inner.add_child(
-                            TextView::new(format!("> a creature named {username} logged on"))
-                                .with_name(format!("{id:x?}_logon")),
-                        );
-                    });
+                UICommand::NewPresence(id, is_join, username) => {
+                    if is_join {
+                        siv.call_on_name("chat_inner", |chat_inner: &mut LinearLayout| {
+                            chat_inner.add_child(
+                                TextView::new(format!("> a creature named {username} logged on"))
+                                    .with_name(format!("{id:x?}_logon")),
+                            );
+                        });
+                    }
                     siv.call_on_name("presences", |presences: &mut LinearLayout| {
                         presences.add_child(
                             TextView::new(format!("* {username}"))
@@ -326,6 +340,9 @@ pub fn run() {
                     });
                 }
                 UICommand::UpdatePresence(id, old_username, new_username) => {
+                    if old_username == new_username {
+                        continue;
+                    }
                     siv.call_on_name("chat_inner", |chat_inner: &mut LinearLayout| {
                         chat_inner.add_child(TextView::new(format!(
                             "> {old_username} is now known as {new_username}"

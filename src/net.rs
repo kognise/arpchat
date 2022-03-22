@@ -28,7 +28,7 @@ pub type Id = [u8; ID_SIZE];
 pub enum Packet {
     Message(Id, String),
     PresenceReq,
-    Presence(Id, String),
+    Presence(Id, bool, String),
     Disconnect(Id),
 }
 
@@ -37,7 +37,7 @@ impl Packet {
         match self {
             Packet::Message(_, _) => 0,
             Packet::PresenceReq => 1,
-            Packet::Presence(_, _) => 2,
+            Packet::Presence(_, _, _) => 2,
             Packet::Disconnect(_) => 3,
         }
     }
@@ -53,8 +53,9 @@ impl Packet {
             1 => Some(Packet::PresenceReq),
             2 => {
                 let id: Id = data[..ID_SIZE].try_into().ok()?;
-                let str = String::from_utf8(data[ID_SIZE..].to_vec()).ok()?;
-                Some(Packet::Presence(id, str))
+                let is_join = data[ID_SIZE] != 0;
+                let str = String::from_utf8(data[ID_SIZE + 1..].to_vec()).ok()?;
+                Some(Packet::Presence(id, is_join, str))
             }
             3 => Some(Packet::Disconnect(data.try_into().ok()?)),
             _ => None,
@@ -65,7 +66,9 @@ impl Packet {
         match self {
             Packet::Message(id, msg) => [id as &[u8], &smaz::compress(msg.as_bytes())].concat(),
             Packet::PresenceReq => vec![],
-            Packet::Presence(id, str) => [id, str.as_bytes()].concat(),
+            Packet::Presence(id, is_join, str) => {
+                [id as &[u8], &[*is_join as u8], str.as_bytes()].concat()
+            }
             Packet::Disconnect(id) => id.to_vec(),
         }
     }
