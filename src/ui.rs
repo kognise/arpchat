@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::thread;
 
 use crossbeam_channel::{unbounded, Receiver, Sender};
+use cursive::backends::crossterm::crossterm::style::Stylize;
 use cursive::direction::Direction;
 use cursive::event::Key;
 use cursive::traits::{Nameable, Resizable, Scrollable};
@@ -327,8 +328,10 @@ pub fn run() {
                     if is_join {
                         siv.call_on_name("chat_inner", |chat_inner: &mut LinearLayout| {
                             chat_inner.add_child(
-                                TextView::new(format!("> a creature named {username} logged on"))
-                                    .with_name(format!("{id:x?}_logon")),
+                                TextView::new(
+                                    format!("> {username} logged on").dark_grey().to_string(),
+                                )
+                                .with_name(format!("{id:x?}_logon")),
                             );
                         });
                     }
@@ -344,12 +347,18 @@ pub fn run() {
                         continue;
                     }
                     siv.call_on_name("chat_inner", |chat_inner: &mut LinearLayout| {
-                        chat_inner.add_child(TextView::new(format!(
-                            "> {old_username} is now known as {new_username}"
-                        )));
+                        chat_inner.add_child(TextView::new(
+                            format!("> {old_username} is now known as {new_username}")
+                                .dark_grey()
+                                .to_string(),
+                        ));
                     });
                     siv.call_on_name(&format!("{id:x?}_logon"), |logon: &mut TextView| {
-                        logon.set_content(format!("> a creature named {new_username} logged on"));
+                        logon.set_content(
+                            format!("> {new_username} logged on")
+                                .dark_grey()
+                                .to_string(),
+                        );
                     });
                     siv.call_on_name(&format!("{id:x?}_presence"), |presence: &mut TextView| {
                         presence.set_content(format!("* {new_username}"));
@@ -367,8 +376,11 @@ pub fn run() {
                 }
                 UICommand::RemovePresence(id, username) => {
                     siv.call_on_name("chat_inner", |chat_inner: &mut LinearLayout| {
-                        chat_inner
-                            .add_child(TextView::new(format!("> {username} disconnected, baii~")));
+                        chat_inner.add_child(TextView::new(
+                            format!("> {username} disconnected, baii~")
+                                .dark_grey()
+                                .to_string(),
+                        ));
                     });
                     siv.call_on_name("presences", |presences: &mut LinearLayout| {
                         presences
