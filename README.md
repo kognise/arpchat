@@ -28,17 +28,21 @@ if you wanted, you could probably split off the networking part of this and use 
 
 not only are join and leave notifications a thing, i built an entire presence discovery and heartbeat system to see an updated list of other online users. ironically, part of this serves a similar purpose to arp itself.
 
-i'm planning on experimenting with and adding settings for different arp packet types, since some routers might filter out the malformed ip packets i'm currently using.
-
 ## running
 
 if you actually want to install this for some reason, you can get it from [the releases page](https://github.com/kognise/arpchat/releases/latest).
 
 on windows, you probably need [npcap](https://npcap.com/#download). make sure you check "Install Npcap in WinPcap API-compatible Mode" in the installer!
 
+on linux, you might have to give arpchat network privileges:
+
+```sh
+sudo setcap CAP_NET_RAW+ep /path/to/arpchat
+```
+
 ![interface selector](https://doggo.ninja/tvFJ2A.png)
 
-then just run the binary in a terminal. you know it's working properly if you can see your own messages when you send them. if you *can't* see your messages, try selecting a different interface!
+then just run the binary in a terminal. you know it's working properly if you can see your own messages when you send them. if you *can't* see your messages, try selecting a different interface or protocol!
 
 have any issues? that really sucks. you can make an issue if it pleases you.
 
