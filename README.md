@@ -26,7 +26,7 @@ you can send messages tens of thousands of characters long because i implemented
 
 if you wanted, you could probably split off the networking part of this and use it instead of udp. please don't do this.
 
-not only are join and leave notifications a thing, i built an entire presence discovery system to see a list of other online users. ironically, this serves a similar purpose to arp itself.
+not only are join and leave notifications a thing, i built an entire presence discovery and heartbeat system to see an updated list of other online users. ironically, part of this serves a similar purpose to arp itself.
 
 i'm planning on experimenting with and adding settings for different arp packet types, since some routers might filter out the malformed ip packets i'm currently using.
 
