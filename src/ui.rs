@@ -16,8 +16,7 @@ use std::thread;
 
 use crossbeam_channel::unbounded;
 use cursive::backends::crossterm::crossterm::style::Stylize;
-use cursive::traits::Nameable;
-use cursive::views::{Dialog, LinearLayout, TextView};
+use cursive::views::{Dialog, LinearLayout};
 
 use self::config::CONFIG;
 use self::dialog::interface::show_iface_dialog;
@@ -45,13 +44,13 @@ pub fn run() {
     while siv.is_running() {
         while let Ok(cmd) = ui_rx.try_recv() {
             match cmd {
-                UICommand::NewMessage(username, id, msg) => {
-                    siv.call_on_name("chat_inner", |chat_inner: &mut LinearLayout| {
-                        chat_inner.add_child(
-                            TextView::new(format!("[{username}] {msg}"))
-                                .with_name(format!("{id:x?}_msg")),
-                        );
-                    });
+                UICommand::NewMessage(mid, username, msg) => {
+                    update_or_append_txt(
+                        &mut siv,
+                        "chat_inner",
+                        &format!("{mid:x?}_msg"),
+                        format!("[{username}] {msg}"),
+                    );
                 }
                 UICommand::UpdateUsername(new_username) => {
                     if new_username == username {

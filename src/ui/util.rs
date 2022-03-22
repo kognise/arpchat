@@ -17,7 +17,7 @@ pub enum UICommand {
     SendMessage(String),
     SetInterface(String),
     SetEtherType(EtherType),
-    NewMessage(String, Id, String),
+    NewMessage(Id, String, String),
     PresenceUpdate(Id, String, bool, UpdatePresenceKind),
     RemovePresence(Id, String),
     Error(ArpchatError),
