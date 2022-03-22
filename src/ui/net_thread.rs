@@ -7,6 +7,7 @@ use rand::Rng;
 use crate::error::ArpchatError;
 use crate::net::{sorted_usable_interfaces, Channel, Id, Packet};
 
+use super::config::CONFIG;
 use super::util::UpdatePresenceKind;
 use super::{NetCommand, UICommand};
 
@@ -41,7 +42,12 @@ pub(super) fn start_net_thread(tx: Sender<UICommand>, rx: Receiver<NetCommand>) 
                         .into_iter()
                         .find(|iface| iface.name == name)
                         .ok_or(ArpchatError::InvalidInterface(name))?;
-                    channel = Some(Channel::from_interface(interface)?);
+
+                    let mut new_channel = Channel::from_interface(interface)?;
+                    if let Some(ether_type) = CONFIG.lock().unwrap().ether_type {
+                        new_channel.set_ether_type(ether_type);
+                    }
+                    channel = Some(new_channel);
                 } else {
                     continue;
                 }
@@ -51,6 +57,7 @@ pub(super) fn start_net_thread(tx: Sender<UICommand>, rx: Receiver<NetCommand>) 
 
             match rx.try_recv() {
                 Ok(NetCommand::SetInterface(_)) => Err(ArpchatError::InterfaceAlreadySet)?,
+                Ok(NetCommand::SetEtherType(ether_type)) => channel.set_ether_type(ether_type),
                 Ok(NetCommand::SendMessage(msg)) => channel.send(Packet::Message(id, msg))?,
                 Ok(NetCommand::UpdateUsername(new_username)) => {
                     username = new_username;

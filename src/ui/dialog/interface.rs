@@ -1,13 +1,13 @@
 use crossbeam_channel::Sender;
-use cursive::traits::{Nameable, Resizable};
+use cursive::traits::Resizable;
 use cursive::views::{Dialog, SelectView};
 use cursive::Cursive;
 
-use crate::config::CONFIG;
 use crate::net::sorted_usable_interfaces;
+use crate::ui::config::CONFIG;
+use crate::ui::util::UICommand;
 
-use super::dialog_username::show_username_dialog;
-use super::util::UICommand;
+use super::username::show_username_dialog;
 
 pub fn show_iface_dialog(siv: &mut Cursive, ui_tx: Sender<UICommand>) {
     let interfaces = sorted_usable_interfaces();
@@ -42,8 +42,7 @@ pub fn show_iface_dialog(siv: &mut Cursive, ui_tx: Sender<UICommand>) {
                         ui_tx.send(UICommand::SetInterface(name.clone())).unwrap();
                         siv.pop_layer();
                         show_username_dialog(siv, ui_tx.clone(), true);
-                    })
-                    .with_name("iface_select"),
+                    }),
             )
             .min_width(32),
     );

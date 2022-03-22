@@ -1,5 +1,6 @@
 use std::collections::HashMap;
-use std::fmt::Debug;
+use std::fmt::{Debug, Display};
+use std::slice::Iter;
 
 use pnet::datalink::{
     Channel as DataLinkChannel, DataLinkReceiver, DataLinkSender, NetworkInterface,
@@ -7,14 +8,12 @@ use pnet::datalink::{
 use pnet::packet::ethernet::{EtherTypes, EthernetPacket, MutableEthernetPacket};
 use pnet::packet::Packet as PnetPacket;
 use pnet::util::MacAddr;
+use serde::{Deserialize, Serialize};
 
 use crate::error::ArpchatError;
 
-const ARP_START: &[u8] = &[
-    0, 1, // Hardware Type (Ethernet)
-    8, 0, // Protocol Type (IPv4)
-    6, // Hardware Address Length
-];
+const ARP_HTYPE: &[u8] = &[0x00, 0x01]; // Hardware Type (Ethernet)
+const ARP_HLEN: u8 = 6; // Hardware Address Length
 const ARP_OPER: &[u8] = &[0, 1]; // Operation (Request)
 const PACKET_PREFIX: &[u8] = b"uwu";
 
@@ -23,6 +22,48 @@ const PACKET_PART_SIZE: usize = u8::MAX as usize - (PACKET_PREFIX.len() + 3);
 
 pub const ID_SIZE: usize = 8;
 pub type Id = [u8; ID_SIZE];
+
+#[derive(Default, Serialize, Deserialize, Copy, Clone, Debug, PartialEq, Eq)]
+pub enum EtherType {
+    #[default]
+    Experimental1,
+    Experimental2,
+    IPv4,
+}
+
+impl EtherType {
+    pub fn bytes(&self) -> &[u8] {
+        match self {
+            EtherType::Experimental1 => &[0x88, 0xb5],
+            EtherType::Experimental2 => &[0x88, 0xb6],
+            EtherType::IPv4 => &[0x08, 0x00],
+        }
+    }
+
+    pub fn iter() -> Iter<'static, EtherType> {
+        static TYPES: [EtherType; 3] = [
+            EtherType::Experimental1,
+            EtherType::Experimental2,
+            EtherType::IPv4,
+        ];
+        TYPES.iter()
+    }
+}
+
+impl Display for EtherType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            EtherType::Experimental1 => write!(f, "experimental 1")?,
+            EtherType::Experimental2 => write!(f, "experimental 2")?,
+            EtherType::IPv4 => write!(f, "ipv4")?,
+        }
+        write!(
+            f,
+            " - 0x{:0>4x?}",
+            u16::from_be_bytes(self.bytes().try_into().unwrap())
+        )
+    }
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Packet {
@@ -89,6 +130,7 @@ pub fn sorted_usable_interfaces() -> Vec<NetworkInterface> {
 
 pub struct Channel {
     src_mac: MacAddr,
+    ether_type: EtherType,
     tx: Box<dyn DataLinkSender>,
     rx: Box<dyn DataLinkReceiver>,
 
@@ -113,10 +155,15 @@ impl Channel {
 
         Ok(Self {
             src_mac: interface.mac.ok_or(ArpchatError::NoMAC)?,
+            ether_type: EtherType::default(),
             tx,
             rx,
             buffer: HashMap::new(),
         })
+    }
+
+    pub fn set_ether_type(&mut self, ether_type: EtherType) {
+        self.ether_type = ether_type;
     }
 
     pub fn send(&mut self, packet: Packet) -> Result<(), ArpchatError> {
@@ -152,8 +199,9 @@ impl Channel {
         );
 
         let arp_buffer = [
-            ARP_START,
-            &[data.len() as u8], // Protocol Address Length
+            ARP_HTYPE,
+            self.ether_type.bytes(),
+            &[ARP_HLEN, data.len() as u8],
             ARP_OPER,
             &self.src_mac.octets(), // Sender hardware address
             data,                   // Sender protocol address
@@ -186,7 +234,8 @@ impl Channel {
         // Early filter for packets that aren't relevant.
         if packet.get_ethertype() != EtherTypes::Arp
             || &packet.payload()[6..8] != ARP_OPER
-            || &packet.payload()[..5] != ARP_START
+            || &packet.payload()[..2] != ARP_HTYPE
+            || packet.payload()[4] != ARP_HLEN
         {
             return Ok(None);
         }

@@ -1,11 +1,16 @@
 // This is all horrible and needs a humongous refactor.
 // The net code is half-decent though!
 
-mod dialog_iface;
-mod dialog_username;
+mod config;
 mod init;
 mod net_thread;
 mod util;
+
+mod dialog {
+    pub mod ether_type;
+    pub mod interface;
+    pub mod username;
+}
 
 use std::thread;
 
@@ -14,9 +19,8 @@ use cursive::backends::crossterm::crossterm::style::Stylize;
 use cursive::traits::Nameable;
 use cursive::views::{Dialog, LinearLayout, TextView};
 
-use crate::config::CONFIG;
-
-use self::dialog_iface::show_iface_dialog;
+use self::config::CONFIG;
+use self::dialog::interface::show_iface_dialog;
 use self::util::{
     append_txt, update_or_append_txt, update_title, NetCommand, UICommand, UpdatePresenceKind,
 };
@@ -75,6 +79,13 @@ pub fn run() {
 
                     let mut config = CONFIG.lock().unwrap();
                     config.interface = Some(interface.clone());
+                    config.save();
+                }
+                UICommand::SetEtherType(ether_type) => {
+                    net_tx.send(NetCommand::SetEtherType(ether_type)).unwrap();
+
+                    let mut config = CONFIG.lock().unwrap();
+                    config.ether_type = Some(ether_type);
                     config.save();
                 }
                 UICommand::SendMessage(msg) => {

@@ -5,10 +5,13 @@ use std::{fs, sync::Mutex};
 use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
 
+use crate::net::EtherType;
+
 #[derive(Serialize, Deserialize, Default)]
 pub struct Config {
     pub username: Option<String>,
     pub interface: Option<String>,
+    pub ether_type: Option<EtherType>,
 }
 
 impl Config {

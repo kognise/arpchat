@@ -4,10 +4,9 @@ use cursive::traits::{Nameable, Resizable};
 use cursive::views::{Dialog, EditView};
 use cursive::{Cursive, View};
 
-use crate::config::CONFIG;
-
-use super::init::init_app;
-use super::util::UICommand;
+use crate::ui::config::CONFIG;
+use crate::ui::init::init_app;
+use crate::ui::util::UICommand;
 
 pub fn show_username_dialog(siv: &mut Cursive, ui_tx: Sender<UICommand>, init_after: bool) {
     if let Some(ref mut username_dialog) = siv.find_name::<Dialog>("username_dialog") {

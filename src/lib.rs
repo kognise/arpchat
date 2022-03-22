@@ -1,6 +1,6 @@
 #![feature(try_blocks)]
+#![feature(derive_default_enum)]
 
-pub mod config;
 pub mod error;
 pub mod net;
 pub mod ui;

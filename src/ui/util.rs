@@ -4,7 +4,7 @@ use cursive::views::{LinearLayout, NamedView, Panel, ResizedView, ScrollView, Te
 use cursive::Cursive;
 
 use crate::error::ArpchatError;
-use crate::net::Id;
+use crate::net::{EtherType, Id};
 
 pub enum UpdatePresenceKind {
     Boring,
@@ -16,6 +16,7 @@ pub enum UICommand {
     UpdateUsername(String),
     SendMessage(String),
     SetInterface(String),
+    SetEtherType(EtherType),
     NewMessage(String, Id, String),
     PresenceUpdate(Id, String, bool, UpdatePresenceKind),
     RemovePresence(Id, String),
@@ -26,6 +27,7 @@ pub enum NetCommand {
     UpdateUsername(String),
     SendMessage(String),
     SetInterface(String),
+    SetEtherType(EtherType),
     PauseHeartbeat(bool),
     Terminate,
 }
