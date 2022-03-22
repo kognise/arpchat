@@ -53,7 +53,7 @@ impl Packet {
             1 => Some(Packet::PresenceReq),
             2 => {
                 let id: Id = data[..ID_SIZE].try_into().ok()?;
-                let is_join = data[ID_SIZE] != 0;
+                let is_join = data[ID_SIZE] > 0;
                 let str = String::from_utf8(data[ID_SIZE + 1..].to_vec()).ok()?;
                 Some(Packet::Presence(id, is_join, str))
             }
