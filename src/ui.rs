@@ -14,6 +14,8 @@ use cursive::backends::crossterm::crossterm::style::Stylize;
 use cursive::traits::Nameable;
 use cursive::views::{Dialog, LinearLayout, TextView};
 
+use crate::config::CONFIG;
+
 use self::dialog_iface::show_iface_dialog;
 use self::util::{
     append_txt, update_or_append_txt, update_title, NetCommand, UICommand, UpdatePresenceKind,
@@ -53,7 +55,12 @@ pub fn run() {
                     }
                     if !new_username.is_empty() {
                         username = new_username;
+
+                        let mut config = CONFIG.lock().unwrap();
+                        config.username = Some(username.clone());
+                        config.save();
                     }
+
                     net_tx
                         .send(NetCommand::UpdateUsername(username.clone()))
                         .unwrap();
@@ -65,6 +72,10 @@ pub fn run() {
                         .send(NetCommand::SetInterface(interface.clone()))
                         .unwrap();
                     update_title(&mut siv, &username, &interface);
+
+                    let mut config = CONFIG.lock().unwrap();
+                    config.interface = Some(interface.clone());
+                    config.save();
                 }
                 UICommand::SendMessage(msg) => {
                     if msg == "/offline" {
@@ -139,4 +150,5 @@ pub fn run() {
 
     net_tx.send(NetCommand::Terminate).unwrap();
     net_thread.join().unwrap();
+    CONFIG.lock().unwrap().save();
 }

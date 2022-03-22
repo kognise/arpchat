@@ -4,6 +4,8 @@ use cursive::traits::{Nameable, Resizable};
 use cursive::views::{Dialog, EditView};
 use cursive::{Cursive, View};
 
+use crate::config::CONFIG;
+
 use super::init::init_app;
 use super::util::UICommand;
 
@@ -18,13 +20,14 @@ pub fn show_username_dialog(siv: &mut Cursive, ui_tx: Sender<UICommand>, init_af
             .title("set username")
             .content(
                 EditView::new()
-                    .content(
+                    .content(CONFIG.lock().unwrap().username.clone().unwrap_or_else(|| {
                         gethostname::gethostname()
                             .to_string_lossy()
                             .split('.')
                             .next()
-                            .unwrap_or(""),
-                    )
+                            .unwrap_or("")
+                            .to_string()
+                    }))
                     .on_submit({
                         let ui_tx = ui_tx.clone();
                         move |siv, username| {
