@@ -58,9 +58,7 @@ pub(super) fn start_net_thread(tx: Sender<UICommand>, rx: Receiver<NetCommand>) 
             match rx.try_recv() {
                 Ok(NetCommand::SetInterface(_)) => Err(ArpchatError::InterfaceAlreadySet)?,
                 Ok(NetCommand::SetEtherType(ether_type)) => channel.set_ether_type(ether_type),
-                Ok(NetCommand::SendMessage(msg)) => {
-                    channel.send(Packet::Message(rand::thread_rng().gen(), id, msg))?
-                }
+                Ok(NetCommand::SendMessage(msg)) => channel.send(Packet::Message(id, msg))?,
                 Ok(NetCommand::UpdateUsername(new_username)) => {
                     username = new_username;
                     if state == NetThreadState::NeedsUsername {
@@ -77,12 +75,12 @@ pub(super) fn start_net_thread(tx: Sender<UICommand>, rx: Receiver<NetCommand>) 
             }
 
             match channel.try_recv()? {
-                Some(Packet::Message(mid, id, msg)) => {
+                Some(Packet::Message(id, msg)) => {
                     let username = match online.get(&id) {
                         Some((_, username)) => username.clone(),
                         None => "unknown".to_string(),
                     };
-                    tx.send(UICommand::NewMessage(mid, username, msg)).unwrap()
+                    tx.send(UICommand::NewMessage(username, id, msg)).unwrap()
                 }
                 Some(Packet::PresenceReq) => {
                     if state == NetThreadState::NeedsInitialPresence {

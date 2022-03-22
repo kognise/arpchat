@@ -67,7 +67,7 @@ impl Display for EtherType {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Packet {
-    Message(Id, Id, String),
+    Message(Id, String),
     PresenceReq,
     Presence(Id, bool, String),
     Disconnect(Id),
@@ -76,7 +76,7 @@ pub enum Packet {
 impl Packet {
     fn tag(&self) -> u8 {
         match self {
-            Packet::Message(_, _, _) => 0,
+            Packet::Message(_, _) => 0,
             Packet::PresenceReq => 1,
             Packet::Presence(_, _, _) => 2,
             Packet::Disconnect(_) => 3,
@@ -86,11 +86,10 @@ impl Packet {
     fn deserialize(tag: u8, data: &[u8]) -> Option<Self> {
         match tag {
             0 => {
-                let mid: Id = data[..ID_SIZE].try_into().ok()?;
-                let id: Id = data[ID_SIZE..ID_SIZE * 2].try_into().ok()?;
-                let raw_str = smaz::decompress(&data[ID_SIZE * 2..]).ok()?;
+                let id: Id = data[..ID_SIZE].try_into().ok()?;
+                let raw_str = smaz::decompress(&data[ID_SIZE..]).ok()?;
                 let str = String::from_utf8(raw_str).ok()?;
-                Some(Packet::Message(mid, id, str))
+                Some(Packet::Message(id, str))
             }
             1 => Some(Packet::PresenceReq),
             2 => {
@@ -106,9 +105,7 @@ impl Packet {
 
     fn serialize(&self) -> Vec<u8> {
         match self {
-            Packet::Message(mid, id, msg) => {
-                [mid as &[u8], id, &smaz::compress(msg.as_bytes())].concat()
-            }
+            Packet::Message(id, msg) => [id as &[u8], &smaz::compress(msg.as_bytes())].concat(),
             Packet::PresenceReq => vec![],
             Packet::Presence(id, is_join, str) => {
                 [id as &[u8], &[*is_join as u8], str.as_bytes()].concat()
