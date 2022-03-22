@@ -4,11 +4,13 @@ so... you know arp? the protocol your computer uses to find the mac addresses of
 
 i thought it would be a great idea to hijack it to make a chat app :)
 
+built in two days because i was sick and had nothing better to do.
+
 ![screenshot of the tool in action](https://doggo.ninja/RJGHYH.png)
 
 ## motivation
 
-1. once a year i'm on a network that i want to chat with friends over, but a captive portal blocks me
+1. once a year, i'm on a client isolated network that i want to chat with friends over
 2. i'm completely insane
 3. i'm a programmer
 
