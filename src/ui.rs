@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::thread;
 
 use crossbeam_channel::{unbounded, Receiver, Sender};
@@ -9,64 +10,84 @@ use cursive::views::{
     Dialog, EditView, LinearLayout, NamedView, Panel, ResizedView, ScrollView, SelectView, TextView,
 };
 use cursive::{Cursive, View};
+use rand::Rng;
 
 use crate::error::ArpchatError;
-use crate::net::{sorted_usable_interfaces, Channel, Packet};
+use crate::net::{sorted_usable_interfaces, Channel, Id, Packet};
 
 enum UICommand {
-    NewMessage(String),
-    SendNickedMessage(String),
     UpdateUsername(String),
-    SwitchInterface(String),
+    SendMessage(String),
+    SetInterface(String),
+    NewMessage(String, Id, String),
+    NewPresence(Id, String),
+    UpdatePresence(Id, String, String),
+    RemovePresence(Id, String),
     Error(ArpchatError),
 }
 
 enum NetCommand {
+    UpdateUsername(String),
     SendMessage(String),
-    SwitchInterface(String),
+    SetInterface(String),
     Terminate,
 }
 
 fn init_app(siv: &mut Cursive, ui_tx: Sender<UICommand>) {
     siv.menubar()
-        .add_leaf("Set Username", {
+        .add_leaf("set username", {
             let ui_tx = ui_tx.clone();
             move |siv| show_username_dialog(siv, ui_tx.clone(), false)
         })
-        .add_leaf("Quit", |siv| siv.quit());
+        .add_leaf("quit", |siv| siv.quit());
     siv.set_autohide_menu(false);
     siv.add_global_callback(Key::Esc, |siv| siv.select_menubar());
 
     siv.add_fullscreen_layer(
-        LinearLayout::vertical()
+        LinearLayout::horizontal()
+            .child(
+                LinearLayout::vertical()
+                    .child(
+                        Panel::new(
+                            LinearLayout::vertical()
+                                .with_name("chat_inner")
+                                .full_height()
+                                .full_width()
+                                .scrollable()
+                                .scroll_strategy(ScrollStrategy::StickToBottom),
+                        )
+                        .title("arpchat")
+                        .with_name("chat_panel")
+                        .full_height()
+                        .full_width(),
+                    )
+                    .child(
+                        Panel::new(
+                            EditView::new()
+                                .on_submit(move |siv, msg| {
+                                    siv.call_on_name("input", |input: &mut EditView| {
+                                        input.set_content("");
+                                    });
+                                    ui_tx.send(UICommand::SendMessage(msg.to_string())).unwrap();
+                                })
+                                .with_name("input"),
+                        )
+                        .full_width(),
+                    )
+                    .full_width(),
+            )
             .child(
                 Panel::new(
                     LinearLayout::vertical()
-                        .with_name("chat_inner")
+                        .with_name("presences")
                         .full_height()
                         .full_width()
                         .scrollable()
                         .scroll_strategy(ScrollStrategy::StickToBottom),
                 )
-                .title("arpchat")
-                .with_name("chat_panel")
+                .title("online users")
                 .full_height()
-                .full_width(),
-            )
-            .child(
-                Panel::new(
-                    EditView::new()
-                        .on_submit(move |siv, msg| {
-                            siv.call_on_name("input", |input: &mut EditView| {
-                                input.set_content("");
-                            });
-                            ui_tx
-                                .send(UICommand::SendNickedMessage(msg.to_string()))
-                                .unwrap();
-                        })
-                        .with_name("input"),
-                )
-                .full_width(),
+                .fixed_width(32),
             ),
     );
 }
@@ -74,7 +95,7 @@ fn init_app(siv: &mut Cursive, ui_tx: Sender<UICommand>) {
 fn show_iface_dialog(siv: &mut Cursive, ui_tx: Sender<UICommand>) {
     siv.add_layer(
         Dialog::new()
-            .title("Select an Interface")
+            .title("select an interface")
             .content(
                 SelectView::new()
                     .with_all(sorted_usable_interfaces().into_iter().map(|iface| {
@@ -92,15 +113,14 @@ fn show_iface_dialog(siv: &mut Cursive, ui_tx: Sender<UICommand>) {
                         )
                     }))
                     .on_submit(move |siv, name: &String| {
-                        ui_tx
-                            .send(UICommand::SwitchInterface(name.clone()))
-                            .unwrap();
+                        ui_tx.send(UICommand::SetInterface(name.clone())).unwrap();
                         siv.pop_layer();
                         show_username_dialog(siv, ui_tx.clone(), true);
                     })
                     .with_name("iface_select"),
             )
-            .min_width(32),
+            .full_width()
+            .max_width(32),
     );
 }
 
@@ -112,7 +132,7 @@ fn show_username_dialog(siv: &mut Cursive, ui_tx: Sender<UICommand>, init_after:
 
     siv.add_layer(
         Dialog::new()
-            .title("Set Username")
+            .title("set username")
             .content(
                 EditView::new()
                     .content(
@@ -149,40 +169,72 @@ fn show_username_dialog(siv: &mut Cursive, ui_tx: Sender<UICommand>, init_after:
                 }
             })
             .with_name("username_dialog")
-            .min_width(48),
+            .full_width()
+            .max_width(48),
     );
 }
 
 fn net_thread(tx: Sender<UICommand>, rx: Receiver<NetCommand>) {
+    let id: Id = rand::thread_rng().gen();
+    let mut username: String = "".to_string();
     let mut channel: Option<Channel> = None;
+    let mut online: HashMap<Id, String> = HashMap::new();
 
-    'outer: loop {
+    loop {
         let res: Result<(), ArpchatError> = try {
-            while let Ok(cmd) = rx.try_recv() {
-                match cmd {
-                    NetCommand::SendMessage(msg) => {
-                        if let Some(ref mut channel) = channel {
-                            channel.send(Packet::Message(msg))?;
-                        }
-                    }
-                    NetCommand::SwitchInterface(name) => {
-                        if let Some(ref channel) = channel && channel.interface_name() == name {
-                        continue;
-                    }
-                        let interface = sorted_usable_interfaces()
-                            .into_iter()
-                            .find(|iface| iface.name == name)
-                            .ok_or(ArpchatError::InvalidInterface(name))?;
-                        channel = Some(Channel::from_interface(interface)?);
-                    }
-                    NetCommand::Terminate => {
-                        break 'outer;
-                    }
+            if channel.is_none() {
+                if let Ok(NetCommand::SetInterface(name)) = rx.try_recv() {
+                    let interface = sorted_usable_interfaces()
+                        .into_iter()
+                        .find(|iface| iface.name == name)
+                        .ok_or(ArpchatError::InvalidInterface(name))?;
+                    channel = Some(Channel::from_interface(interface)?);
+                } else {
+                    continue;
                 }
             }
+            // SAFETY: Checked directly above.
+            let channel = unsafe { channel.as_mut().unwrap_unchecked() };
 
-            if let Some(ref mut channel) = channel && let Some(Packet::Message(msg)) = channel.try_recv()? {
-                tx.send(UICommand::NewMessage(msg)).unwrap();
+            match rx.try_recv() {
+                Ok(NetCommand::SetInterface(_)) => Err(ArpchatError::InterfaceAlreadySet)?,
+                Ok(NetCommand::SendMessage(msg)) => channel.send(Packet::Message(id, msg))?,
+                Ok(NetCommand::UpdateUsername(new_username)) => {
+                    username = new_username;
+                    channel.send(Packet::PresenceReq)?;
+                }
+                Ok(NetCommand::Terminate) => {
+                    let _ = channel.send(Packet::Disconnect(id));
+                    break;
+                }
+                Err(_) => {}
+            }
+
+            match channel.try_recv()? {
+                Some(Packet::Message(id, msg)) => {
+                    let username = match online.get(&id) {
+                        Some(username) => username.clone(),
+                        None => "unknown".to_string(),
+                    };
+                    tx.send(UICommand::NewMessage(username, id, msg)).unwrap()
+                }
+                Some(Packet::PresenceReq) => {
+                    channel.send(Packet::Presence(id, username.clone()))?;
+                }
+                Some(Packet::Presence(id, new_username)) => {
+                    match online.insert(id, new_username.clone()) {
+                        Some(old_username) => tx
+                            .send(UICommand::UpdatePresence(id, old_username, new_username))
+                            .unwrap(),
+                        None => tx.send(UICommand::NewPresence(id, new_username)).unwrap(),
+                    }
+                }
+                Some(Packet::Disconnect(id)) => {
+                    if let Some(username) = online.remove(&id) {
+                        tx.send(UICommand::RemovePresence(id, username)).unwrap();
+                    }
+                }
+                None => {}
             }
         };
         if let Err(err) = res {
@@ -193,8 +245,12 @@ fn net_thread(tx: Sender<UICommand>, rx: Receiver<NetCommand>) {
 }
 
 fn update_title(siv: &mut Cursive, username: &str, interface: &str) {
-    let title = &format!("arpchat: {} ({})", username, interface);
-    siv.set_window_title(title);
+    let title = if interface.len() <= 8 {
+        format!("arpchat: {username} ({interface})")
+    } else {
+        format!("arpchat: {username}")
+    };
+    siv.set_window_title(&title);
     siv.call_on_name(
         "chat_panel",
         |chat_panel: &mut Panel<ScrollView<ResizedView<ResizedView<NamedView<LinearLayout>>>>>| {
@@ -205,7 +261,6 @@ fn update_title(siv: &mut Cursive, username: &str, interface: &str) {
 
 pub fn run() {
     let (mut username, mut interface) = ("anonymous".to_string(), "".to_string());
-    let mut is_first_username = true;
 
     let (ui_tx, ui_rx) = unbounded::<UICommand>();
     let (net_tx, net_rx) = unbounded::<NetCommand>();
@@ -224,36 +279,85 @@ pub fn run() {
     while siv.is_running() {
         while let Ok(cmd) = ui_rx.try_recv() {
             match cmd {
-                UICommand::NewMessage(msg) => {
+                UICommand::NewMessage(username, id, msg) => {
                     siv.call_on_name("chat_inner", |chat_inner: &mut LinearLayout| {
-                        chat_inner.add_child(TextView::new(msg));
+                        chat_inner.add_child(
+                            TextView::new(format!("[{username}] {msg}"))
+                                .with_name(format!("{id:x?}_msg")),
+                        );
                     });
                 }
                 UICommand::UpdateUsername(new_username) => {
+                    if new_username == username {
+                        continue;
+                    }
                     if !new_username.is_empty() {
                         username = new_username;
                     }
-                    update_title(&mut siv, &username, &interface);
-                    if is_first_username {
-                        net_tx
-                            .send(NetCommand::SendMessage(format!("> {username} logged on")))
-                            .unwrap();
-                        is_first_username = false;
-                    }
-                }
-                UICommand::SwitchInterface(new_interface) => {
                     net_tx
-                        .send(NetCommand::SwitchInterface(new_interface.clone()))
+                        .send(NetCommand::UpdateUsername(username.clone()))
                         .unwrap();
-                    interface = new_interface;
                     update_title(&mut siv, &username, &interface);
                 }
-                UICommand::SendNickedMessage(msg) => {
+                UICommand::SetInterface(new_interface) => {
+                    interface = new_interface;
+                    net_tx
+                        .send(NetCommand::SetInterface(interface.clone()))
+                        .unwrap();
+                    update_title(&mut siv, &username, &interface);
+                }
+                UICommand::SendMessage(msg) => {
                     if !msg.is_empty() {
-                        net_tx
-                            .send(NetCommand::SendMessage(format!("[{username}] {msg}")))
-                            .unwrap();
+                        net_tx.send(NetCommand::SendMessage(msg)).unwrap();
                     }
+                }
+                UICommand::NewPresence(id, username) => {
+                    siv.call_on_name("chat_inner", |chat_inner: &mut LinearLayout| {
+                        chat_inner.add_child(
+                            TextView::new(format!("> a creature named {username} logged on"))
+                                .with_name(format!("{id:x?}_logon")),
+                        );
+                    });
+                    siv.call_on_name("presences", |presences: &mut LinearLayout| {
+                        presences.add_child(
+                            TextView::new(format!("* {username}"))
+                                .with_name(format!("{id:x?}_presence")),
+                        );
+                    });
+                }
+                UICommand::UpdatePresence(id, old_username, new_username) => {
+                    siv.call_on_name("chat_inner", |chat_inner: &mut LinearLayout| {
+                        chat_inner.add_child(TextView::new(format!(
+                            "> {old_username} is now known as {new_username}"
+                        )));
+                    });
+                    siv.call_on_name(&format!("{id:x?}_logon"), |logon: &mut TextView| {
+                        logon.set_content(format!("> a creature named {new_username} logged on"));
+                    });
+                    siv.call_on_name(&format!("{id:x?}_presence"), |presence: &mut TextView| {
+                        presence.set_content(format!("* {new_username}"));
+                    });
+                    siv.call_on_all_named(&format!("{id:x?}_msg"), |msg: &mut TextView| {
+                        let body = msg
+                            .get_content()
+                            .source()
+                            .split(' ')
+                            .skip(1)
+                            .collect::<Vec<&str>>()
+                            .join(" ");
+                        msg.set_content(format!("[{new_username}] {body}"));
+                    });
+                }
+                UICommand::RemovePresence(id, username) => {
+                    siv.call_on_name("chat_inner", |chat_inner: &mut LinearLayout| {
+                        chat_inner
+                            .add_child(TextView::new(format!("> {username} disconnected, baii~")));
+                    });
+                    siv.call_on_name("presences", |presences: &mut LinearLayout| {
+                        presences
+                            .find_child_from_name(&format!("{id:x?}_presence"))
+                            .map(|presence| presences.remove_child(presence));
+                    });
                 }
                 UICommand::Error(err) => {
                     siv.add_layer(
@@ -269,11 +373,6 @@ pub fn run() {
         siv.step();
     }
 
-    net_tx
-        .send(NetCommand::SendMessage(format!(
-            "> {username} disconnected"
-        )))
-        .unwrap();
     net_tx.send(NetCommand::Terminate).unwrap();
     net_thread.join().unwrap();
 }

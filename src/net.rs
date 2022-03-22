@@ -7,7 +7,6 @@ use pnet::datalink::{
 use pnet::packet::ethernet::{EtherTypes, EthernetPacket, MutableEthernetPacket};
 use pnet::packet::Packet as PnetPacket;
 use pnet::util::MacAddr;
-use rand::Rng;
 
 use crate::error::ArpchatError;
 
@@ -22,44 +21,52 @@ const PACKET_PREFIX: &[u8] = b"uwu";
 // Tag, seq, and total, are each one byte, thus the `+ 3`.
 const PACKET_PART_SIZE: usize = u8::MAX as usize - (PACKET_PREFIX.len() + 3);
 
+pub const ID_SIZE: usize = 8;
+pub type Id = [u8; ID_SIZE];
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Packet {
-    Message(String),
+    Message(Id, String),
     PresenceReq,
-    Presence,
-    Disconnect,
+    Presence(Id, String),
+    Disconnect(Id),
 }
 
 impl Packet {
     fn tag(&self) -> u8 {
         match self {
-            Packet::Message(_) => 0,
+            Packet::Message(_, _) => 0,
             Packet::PresenceReq => 1,
-            Packet::Presence => 2,
-            Packet::Disconnect => 3,
+            Packet::Presence(_, _) => 2,
+            Packet::Disconnect(_) => 3,
         }
     }
 
     fn deserialize(tag: u8, data: &[u8]) -> Option<Self> {
         match tag {
             0 => {
-                let raw_str = smaz::decompress(data).ok()?;
+                let id: Id = data[..ID_SIZE].try_into().ok()?;
+                let raw_str = smaz::decompress(&data[ID_SIZE..]).ok()?;
                 let str = String::from_utf8(raw_str).ok()?;
-                Some(Packet::Message(str))
+                Some(Packet::Message(id, str))
             }
             1 => Some(Packet::PresenceReq),
-            2 => Some(Packet::Presence),
-            3 => Some(Packet::Disconnect),
+            2 => {
+                let id: Id = data[..ID_SIZE].try_into().ok()?;
+                let str = String::from_utf8(data[ID_SIZE..].to_vec()).ok()?;
+                Some(Packet::Presence(id, str))
+            }
+            3 => Some(Packet::Disconnect(data.try_into().ok()?)),
             _ => None,
         }
     }
 
     fn serialize(&self) -> Vec<u8> {
         match self {
-            Packet::Message(msg) => smaz::compress(msg.as_bytes()),
+            Packet::Message(id, msg) => [id as &[u8], &smaz::compress(msg.as_bytes())].concat(),
             Packet::PresenceReq => vec![],
-            Packet::Presence => vec![],
-            Packet::Disconnect => vec![],
+            Packet::Presence(id, str) => [id, str.as_bytes()].concat(),
+            Packet::Disconnect(id) => id.to_vec(),
         }
     }
 }
@@ -78,13 +85,9 @@ pub fn sorted_usable_interfaces() -> Vec<NetworkInterface> {
 }
 
 pub struct Channel {
-    interface: NetworkInterface,
     src_mac: MacAddr,
     tx: Box<dyn DataLinkSender>,
     rx: Box<dyn DataLinkReceiver>,
-
-    id: [u8; 8],
-    online: HashMap<[u8; 8], String>,
 
     /// Buffer of received packet parts, keyed by the number of parts and
     /// its tag. This keying method is far from foolproof but reduces
@@ -107,22 +110,20 @@ impl Channel {
 
         Ok(Self {
             src_mac: interface.mac.ok_or(ArpchatError::NoMAC)?,
-            interface,
             tx,
             rx,
-            id: rand::thread_rng().gen(),
-            online: HashMap::new(),
             buffer: HashMap::new(),
         })
     }
 
-    pub fn interface_name(&self) -> String {
-        self.interface.name.clone()
-    }
-
     pub fn send(&mut self, packet: Packet) -> Result<(), ArpchatError> {
         let data = packet.serialize();
-        let parts: Vec<&[u8]> = data.chunks(PACKET_PART_SIZE).collect();
+        let mut parts: Vec<&[u8]> = data.chunks(PACKET_PART_SIZE).collect();
+
+        if parts.is_empty() {
+            // Empty packets still need one byte of data to go through :)
+            parts.push(b".");
+        }
         if parts.len() - 1 > u8::MAX as usize {
             return Err(ArpchatError::MsgTooLong);
         }

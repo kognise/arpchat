@@ -28,4 +28,7 @@ pub enum ArpchatError {
 
     #[error("message too long to send")]
     MsgTooLong,
+
+    #[error("tried to set interface, but interface is already initialized")]
+    InterfaceAlreadySet,
 }
