@@ -3,7 +3,7 @@ ame: Build
 on: [push, pull_request]
 
 jobs:
-  deploy:
+  build:
     runs-on: ${{ matrix.os }}
 
     strategy:
