@@ -51,6 +51,7 @@ pub fn run() {
                     username,
                     channel,
                     message,
+                    ..
                 } => {
                     if channel == current_channel {
                         append_txt(&mut siv, "chat_inner", format!("[{username}] {message}"));

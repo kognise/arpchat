@@ -70,7 +70,12 @@ impl Display for EtherType {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Packet {
-    Message(Id, String, String),
+    Message {
+        id: Id,
+        author: Id,
+        channel: String,
+        message: String,
+    },
     PresenceReq,
     Presence(Id, bool, String),
     Disconnect(Id),
@@ -79,7 +84,7 @@ pub enum Packet {
 impl Packet {
     fn tag(&self) -> u8 {
         match self {
-            Packet::Message(_, _, _) => 0,
+            Packet::Message { .. } => 0,
             Packet::PresenceReq => 1,
             Packet::Presence(_, _, _) => 2,
             Packet::Disconnect(_) => 3,
@@ -89,19 +94,27 @@ impl Packet {
     fn deserialize(tag: u8, data: &[u8]) -> Option<Self> {
         match tag {
             0 => {
-                let chan_len_start = ID_SIZE;
+                let id_start = 0;
+                let user_id_start = id_start + ID_SIZE;
+                let chan_len_start = user_id_start + ID_SIZE;
                 let chan_start = chan_len_start + LEN_PREFIX_SIZE;
                 let chan_len =
-                    u64::from_be_bytes(data[chan_len_start..chan_start].try_into().unwrap());
-                let chan_end = chan_start + chan_len as usize;
+                    u64::from_be_bytes(data[chan_len_start..chan_start].try_into().ok()?);
+                let str_start = chan_start + chan_len as usize;
 
-                let id: Id = data[..chan_len_start].try_into().ok()?;
-                let chan = String::from_utf8(data[chan_start..chan_end].to_vec()).ok()?;
-                let raw_str = smaz::decompress(&data[chan_end..]).ok()?;
+                let id: Id = data[id_start..user_id_start].try_into().ok()?;
+                let user_id: Id = data[user_id_start..chan_len_start].try_into().ok()?;
+                let chan = String::from_utf8(data[chan_start..str_start].to_vec()).ok()?;
+                let raw_str = smaz::decompress(&data[str_start..]).ok()?;
 
                 let str = String::from_utf8(raw_str).ok()?;
 
-                Some(Packet::Message(id, chan, str))
+                Some(Packet::Message {
+                    id,
+                    author: user_id,
+                    channel: chan,
+                    message: str,
+                })
             }
             1 => Some(Packet::PresenceReq),
             2 => {
@@ -117,11 +130,17 @@ impl Packet {
 
     fn serialize(&self) -> Vec<u8> {
         match self {
-            Packet::Message(id, chan, msg) => [
+            Packet::Message {
+                id,
+                author,
+                channel,
+                message,
+            } => [
                 id as &[u8],
-                &(chan.len() as u64).to_be_bytes(),
-                chan.as_bytes(),
-                &smaz::compress(msg.as_bytes()),
+                author as &[u8],
+                &(channel.len() as u64).to_be_bytes(),
+                channel.as_bytes(),
+                &smaz::compress(message.as_bytes()),
             ]
             .concat(),
             Packet::PresenceReq => vec![],

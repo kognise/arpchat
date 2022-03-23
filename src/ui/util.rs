@@ -18,6 +18,7 @@ pub enum UICommand {
     SetInterface(String),
     SetEtherType(EtherType),
     NewMessage {
+        id: [u8; 8],
         // My goal in life is to make everyone use as many owned strings as possible
         username: String,
         channel: String,
