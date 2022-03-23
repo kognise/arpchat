@@ -17,6 +17,7 @@ jobs:
         with:
           profile: minimal
           toolchain: nightly
+          default: true
 
       - uses: Swatinem/rust-cache@v1
         with:
