@@ -17,7 +17,8 @@ use std::thread;
 
 use crossbeam_channel::unbounded;
 use cursive::backends::crossterm::crossterm::style::Stylize;
-use cursive::views::{Dialog, LinearLayout};
+use cursive::traits::{Nameable, Resizable};
+use cursive::views::{Dialog, EditView, LinearLayout, TextView};
 
 use self::config::CONFIG;
 use self::dialog::interface::show_iface_dialog;
@@ -48,13 +49,42 @@ pub fn run() {
         while let Ok(cmd) = ui_rx.try_recv() {
             match cmd {
                 UICommand::NewMessage {
+                    id,
                     username,
                     channel,
                     message,
-                    ..
                 } => {
                     if channel == current_channel {
-                        append_txt(&mut siv, "chat_inner", format!("[{username}] {message}"));
+                        let net_tx = net_tx.clone();
+                        siv.call_on_name("chat_inner", move |parent: &mut LinearLayout| {
+                            parent.add_child(
+                                LinearLayout::horizontal()
+                                    .child(
+                                        TextView::new(format!("[{username}] #{id} {message}"))
+                                            .full_width(),
+                                    )
+                                    .child(
+                                        EditView::new()
+                                            .max_content_width(3)
+                                            .on_submit(move |siv, reaction| {
+                                                if let Some(character) = reaction.chars().next() {
+                                                    siv.call_on_name(
+                                                        &format!("{id}_reaction_box"),
+                                                        |input: &mut EditView| {
+                                                            input.set_content("");
+                                                        },
+                                                    );
+                                                    net_tx
+                                                        .send(NetCommand::Reaction(id, character))
+                                                        .unwrap();
+                                                }
+                                            })
+                                            .with_name(format!("{id}_reaction_box"))
+                                            .min_width(3),
+                                    )
+                                    .with_name(format!("{id}_message")),
+                            );
+                        });
                     }
                 }
                 UICommand::UpdateUsername(new_username) => {
@@ -163,6 +193,16 @@ pub fn run() {
                     current_channel = channel;
                     clear_children(&mut siv, "chat_inner");
                     update_title(&mut siv, &username, &interface, &current_channel);
+                }
+                UICommand::Reaction(id, character) => {
+                    append_txt(
+                        &mut siv,
+                        "chat_inner",
+                        format!("> received reaction").dark_grey().to_string(),
+                    );
+                    siv.call_on_name(&format!("{id}_message"), |view: &mut LinearLayout| {
+                        view.add_child(TextView::new(character));
+                    });
                 }
             }
             siv.refresh();

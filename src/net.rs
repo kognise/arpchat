@@ -79,6 +79,7 @@ pub enum Packet {
     PresenceReq,
     Presence(Id, bool, String),
     Disconnect(Id),
+    Reaction(Id, char),
 }
 
 impl Packet {
@@ -88,6 +89,7 @@ impl Packet {
             Packet::PresenceReq => 1,
             Packet::Presence(_, _, _) => 2,
             Packet::Disconnect(_) => 3,
+            Packet::Reaction(_, _) => 4,
         }
     }
 
@@ -124,6 +126,15 @@ impl Packet {
                 Some(Packet::Presence(id, is_join, str))
             }
             3 => Some(Packet::Disconnect(data.try_into().ok()?)),
+            4 => {
+                let id: Id = data[..ID_SIZE].try_into().ok()?;
+                let raw: [u8; 4] = data[1..].try_into().ok()?;
+
+                Some(Packet::Reaction(
+                    id,
+                    char::from_u32(u32::from_be_bytes(raw))?,
+                ))
+            }
             _ => None,
         }
     }
@@ -148,6 +159,9 @@ impl Packet {
                 [id as &[u8], &[*is_join as u8], str.as_bytes()].concat()
             }
             Packet::Disconnect(id) => id.to_vec(),
+            Packet::Reaction(id, character) => {
+                [id as &[u8], &u32::to_be_bytes(*character as u32)].concat()
+            }
         }
     }
 }

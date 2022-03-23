@@ -76,6 +76,7 @@ pub(super) fn start_net_thread(tx: Sender<UICommand>, rx: Receiver<NetCommand>) 
                     break;
                 }
                 Ok(NetCommand::PauseHeartbeat(pause)) => pause_heartbeat = pause,
+                Ok(NetCommand::Reaction(i, c)) => channel.send(Packet::Reaction(i.to_be_bytes(), c)).unwrap(),
                 Err(_) => {}
             }
 
@@ -91,7 +92,7 @@ pub(super) fn start_net_thread(tx: Sender<UICommand>, rx: Receiver<NetCommand>) 
                         None => "unknown".to_string(),
                     };
                     tx.send(UICommand::NewMessage {
-                        id,
+                        id: u64::from_be_bytes(id),
                         username,
                         channel,
                         message,
@@ -139,6 +140,9 @@ pub(super) fn start_net_thread(tx: Sender<UICommand>, rx: Receiver<NetCommand>) 
                     if let Some((_, username)) = online.remove(&id) {
                         tx.send(UICommand::RemovePresence(id, username)).unwrap();
                     }
+                }
+                Some(Packet::Reaction(i, c)) => {
+                    tx.send(UICommand::Reaction(u64::from_be_bytes(i), c)).unwrap();
                 }
                 None => {}
             }

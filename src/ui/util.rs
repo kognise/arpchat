@@ -18,7 +18,7 @@ pub enum UICommand {
     SetInterface(String),
     SetEtherType(EtherType),
     NewMessage {
-        id: [u8; 8],
+        id: u64,
         // My goal in life is to make everyone use as many owned strings as possible
         username: String,
         channel: String,
@@ -28,6 +28,7 @@ pub enum UICommand {
     RemovePresence(Id, String),
     Error(ArpchatError),
     SetChannel(String),
+    Reaction(u64, char),
 }
 
 pub enum NetCommand {
@@ -36,6 +37,7 @@ pub enum NetCommand {
     SetInterface(String),
     SetEtherType(EtherType),
     PauseHeartbeat(bool),
+    Reaction(u64, char),
     Terminate,
 }
 
