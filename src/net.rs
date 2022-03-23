@@ -20,6 +20,7 @@ const ARP_OPER: &[u8] = &[0, 1]; // Operation (Request)
 const PACKET_PREFIX: &[u8] = b"uwu";
 
 pub const ID_SIZE: usize = 8;
+pub const LEN_PREFIX_SIZE: usize = 8;
 pub type Id = [u8; ID_SIZE];
 
 // Tag, seq, and total, are each one byte, thus the `+ 3`.
@@ -69,7 +70,7 @@ impl Display for EtherType {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Packet {
-    Message(Id, String),
+    Message(Id, String, String),
     PresenceReq,
     Presence(Id, bool, String),
     Disconnect(Id),
@@ -78,7 +79,7 @@ pub enum Packet {
 impl Packet {
     fn tag(&self) -> u8 {
         match self {
-            Packet::Message(_, _) => 0,
+            Packet::Message(_, _, _) => 0,
             Packet::PresenceReq => 1,
             Packet::Presence(_, _, _) => 2,
             Packet::Disconnect(_) => 3,
@@ -88,10 +89,19 @@ impl Packet {
     fn deserialize(tag: u8, data: &[u8]) -> Option<Self> {
         match tag {
             0 => {
-                let id: Id = data[..ID_SIZE].try_into().ok()?;
-                let raw_str = smaz::decompress(&data[ID_SIZE..]).ok()?;
+                let chan_len_start = ID_SIZE;
+                let chan_start = chan_len_start + LEN_PREFIX_SIZE;
+                let chan_len =
+                    u64::from_be_bytes(data[chan_len_start..chan_start].try_into().unwrap());
+                let chan_end = chan_start + chan_len as usize;
+
+                let id: Id = data[..chan_len_start].try_into().ok()?;
+                let chan = String::from_utf8(data[chan_start..chan_end].to_vec()).ok()?;
+                let raw_str = smaz::decompress(&data[chan_end..]).ok()?;
+
                 let str = String::from_utf8(raw_str).ok()?;
-                Some(Packet::Message(id, str))
+
+                Some(Packet::Message(id, chan, str))
             }
             1 => Some(Packet::PresenceReq),
             2 => {
@@ -107,7 +117,13 @@ impl Packet {
 
     fn serialize(&self) -> Vec<u8> {
         match self {
-            Packet::Message(id, msg) => [id as &[u8], &smaz::compress(msg.as_bytes())].concat(),
+            Packet::Message(id, chan, msg) => [
+                id as &[u8],
+                &(chan.len() as u64).to_be_bytes(),
+                chan.as_bytes(),
+                &smaz::compress(msg.as_bytes()),
+            ]
+            .concat(),
             Packet::PresenceReq => vec![],
             Packet::Presence(id, is_join, str) => {
                 [id as &[u8], &[*is_join as u8], str.as_bytes()].concat()

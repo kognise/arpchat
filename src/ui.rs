@@ -7,6 +7,7 @@ mod net_thread;
 mod util;
 
 mod dialog {
+    pub mod channel;
     pub mod ether_type;
     pub mod interface;
     pub mod username;
@@ -21,11 +22,13 @@ use cursive::views::{Dialog, LinearLayout};
 use self::config::CONFIG;
 use self::dialog::interface::show_iface_dialog;
 use self::util::{
-    append_txt, update_or_append_txt, update_title, NetCommand, UICommand, UpdatePresenceKind,
+    append_txt, clear_children, update_or_append_txt, update_title, NetCommand, UICommand,
+    UpdatePresenceKind,
 };
 
 pub fn run() {
-    let (mut username, mut interface) = ("anonymous".to_string(), "".to_string());
+    let (mut username, mut interface, mut current_channel) =
+        ("anonymous".to_string(), "".to_string(), "".to_string());
 
     let (ui_tx, ui_rx) = unbounded::<UICommand>();
     let (net_tx, net_rx) = unbounded::<NetCommand>();
@@ -44,8 +47,14 @@ pub fn run() {
     while siv.is_running() {
         while let Ok(cmd) = ui_rx.try_recv() {
             match cmd {
-                UICommand::NewMessage(username, msg) => {
-                    append_txt(&mut siv, "chat_inner", format!("[{username}] {msg}"));
+                UICommand::NewMessage {
+                    username,
+                    channel,
+                    message,
+                } => {
+                    if channel == current_channel {
+                        append_txt(&mut siv, "chat_inner", format!("[{username}] {message}"));
+                    }
                 }
                 UICommand::UpdateUsername(new_username) => {
                     if new_username == username {
@@ -62,14 +71,14 @@ pub fn run() {
                     net_tx
                         .send(NetCommand::UpdateUsername(username.clone()))
                         .unwrap();
-                    update_title(&mut siv, &username, &interface);
+                    update_title(&mut siv, &username, &interface, &current_channel);
                 }
                 UICommand::SetInterface(new_interface) => {
                     interface = new_interface;
                     net_tx
                         .send(NetCommand::SetInterface(interface.clone()))
                         .unwrap();
-                    update_title(&mut siv, &username, &interface);
+                    update_title(&mut siv, &username, &interface, &current_channel);
 
                     let mut config = CONFIG.lock().unwrap();
                     config.interface = Some(interface.clone());
@@ -88,7 +97,9 @@ pub fn run() {
                     } else if msg == "/online" {
                         net_tx.send(NetCommand::PauseHeartbeat(false)).unwrap();
                     } else if !msg.is_empty() {
-                        net_tx.send(NetCommand::SendMessage(msg)).unwrap();
+                        net_tx
+                            .send(NetCommand::SendMessage(current_channel.clone(), msg))
+                            .unwrap();
                     }
                 }
                 UICommand::PresenceUpdate(id, username, is_inactive, kind) => {
@@ -146,6 +157,11 @@ pub fn run() {
                             .button("Exit", |siv| siv.quit()),
                     );
                     break;
+                }
+                UICommand::SetChannel(channel) => {
+                    current_channel = channel;
+                    clear_children(&mut siv, "chat_inner");
+                    update_title(&mut siv, &username, &interface, &current_channel);
                 }
             }
             siv.refresh();
