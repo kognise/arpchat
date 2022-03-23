@@ -128,7 +128,7 @@ impl Packet {
             3 => Some(Packet::Disconnect(data.try_into().ok()?)),
             4 => {
                 let id: Id = data[..ID_SIZE].try_into().ok()?;
-                let raw: [u8; 4] = data[1..].try_into().ok()?;
+                let raw: [u8; 4] = data[ID_SIZE..].try_into().ok()?;
 
                 Some(Packet::Reaction(
                     id,
