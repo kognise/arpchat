@@ -15,13 +15,23 @@ jobs:
 
       - uses: actions-rs/toolchain@v1
         with:
-          toolchain: stable
+          toolchain: nightly
 
       - uses: Swatinem/rust-cache@v1
         with:
           sharedKey: arpchat
       
+      - name: winpcap dev pack
+        if: ${{ matrix.os }} == windows-latest
+        run: |
+          mkdir lib
+          cd lib
+          curl https://doggo.ninja/DRoba9.lib --output Packet.lib
+          cd ..
+      
       - uses: actions-rs/cargo@v1
+        env:
+          LIB: ${{ GITHUB_WORKSPACE }}/lib
         with:
           command: build
           args: --release
