@@ -24,7 +24,7 @@ dependencies = [
 
 [[package]]
 name = "arpchat"
-version = "0.3.0"
+version = "1.0.0"
 dependencies = [
  "crossbeam-channel",
  "cursive",
