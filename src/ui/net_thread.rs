@@ -76,7 +76,9 @@ pub(super) fn start_net_thread(tx: Sender<UICommand>, rx: Receiver<NetCommand>) 
                     break;
                 }
                 Ok(NetCommand::PauseHeartbeat(pause)) => pause_heartbeat = pause,
-                Ok(NetCommand::Reaction(i, c)) => channel.send(Packet::Reaction(i.to_be_bytes(), c)).unwrap(),
+                Ok(NetCommand::Reaction(i, c)) => {
+                    channel.send(Packet::Reaction(i.to_be_bytes(), c)).unwrap()
+                }
                 Err(_) => {}
             }
 
