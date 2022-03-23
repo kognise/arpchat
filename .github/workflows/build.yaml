@@ -40,6 +40,8 @@ jobs:
       
       - uses: actions/upload-artifact@v3
         with:
-          name: release
-          path: target/release/arpchat*
+          name: release ${{ matrix.os }}
+          path: |
+            target/release/arpchat*
+            !target/release/arpchat.d
           retention-days: 1
