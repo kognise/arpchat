@@ -31,7 +31,7 @@ jobs:
       
       - uses: actions-rs/cargo@v1
         env:
-          LIB: ${{ GITHUB_WORKSPACE }}/lib
+          LIB: ${{ env.GITHUB_WORKSPACE }}/lib
         with:
           command: build
           args: --release
