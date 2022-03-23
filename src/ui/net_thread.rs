@@ -80,7 +80,7 @@ pub(super) fn start_net_thread(tx: Sender<UICommand>, rx: Receiver<NetCommand>) 
                         Some((_, username)) => username.clone(),
                         None => "unknown".to_string(),
                     };
-                    tx.send(UICommand::NewMessage(username, id, msg)).unwrap()
+                    tx.send(UICommand::NewMessage(username, msg)).unwrap()
                 }
                 Some(Packet::PresenceReq) => {
                     if state == NetThreadState::NeedsInitialPresence {

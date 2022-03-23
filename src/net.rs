@@ -8,20 +8,22 @@ use pnet::datalink::{
 use pnet::packet::ethernet::{EtherTypes, EthernetPacket, MutableEthernetPacket};
 use pnet::packet::Packet as PnetPacket;
 use pnet::util::MacAddr;
+use rand::Rng;
 use serde::{Deserialize, Serialize};
 
 use crate::error::ArpchatError;
+use crate::ringbuffer::Ringbuffer;
 
 const ARP_HTYPE: &[u8] = &[0x00, 0x01]; // Hardware Type (Ethernet)
 const ARP_HLEN: u8 = 6; // Hardware Address Length
 const ARP_OPER: &[u8] = &[0, 1]; // Operation (Request)
 const PACKET_PREFIX: &[u8] = b"uwu";
 
-// Tag, seq, and total, are each one byte, thus the `+ 3`.
-const PACKET_PART_SIZE: usize = u8::MAX as usize - (PACKET_PREFIX.len() + 3);
-
 pub const ID_SIZE: usize = 8;
 pub type Id = [u8; ID_SIZE];
+
+// Tag, seq, and total, are each one byte, thus the `+ 3`.
+const PACKET_PART_SIZE: usize = u8::MAX as usize - (PACKET_PREFIX.len() + 3 + ID_SIZE);
 
 #[derive(Default, Serialize, Deserialize, Copy, Clone, Debug, PartialEq, Eq)]
 pub enum EtherType {
@@ -134,15 +136,16 @@ pub struct Channel {
     tx: Box<dyn DataLinkSender>,
     rx: Box<dyn DataLinkReceiver>,
 
-    /// Buffer of received packet parts, keyed by the number of parts and
-    /// its tag. This keying method is far from foolproof but reduces
-    /// the chance of colliding packets just a tiny bit.
+    /// Buffer of received packet parts, keyed by the packet id.
     ///
     /// Each value is the Vec of its parts, and counts as a packet when
     /// every part is non-empty. There are probably several optimization
     /// opportunities here, but c'mon, a naive approach is perfectly fine
     /// for a program this cursed.
-    buffer: HashMap<(u8, u8), Vec<Vec<u8>>>,
+    buffer: HashMap<Id, Vec<Vec<u8>>>,
+
+    /// Recent packet buffer for deduplication.
+    recent: Ringbuffer<Id>,
 }
 
 impl Channel {
@@ -159,6 +162,7 @@ impl Channel {
             tx,
             rx,
             buffer: HashMap::new(),
+            recent: Ringbuffer::with_capacity(16),
         })
     }
 
@@ -171,7 +175,9 @@ impl Channel {
         let mut parts: Vec<&[u8]> = data.chunks(PACKET_PART_SIZE).collect();
 
         if parts.is_empty() {
-            // Empty packets still need one byte of data to go through :)
+            // We need to send some data so empty enums go through! Not entirely
+            // sure *why* this is the case... pushing an empty string feels like
+            // it should be fine, but it doesn't work.
             parts.push(b".");
         }
         if parts.len() - 1 > u8::MAX as usize {
@@ -179,15 +185,23 @@ impl Channel {
         }
 
         let total = (parts.len() - 1) as u8;
+        let id: Id = rand::thread_rng().gen();
         for (seq, part) in parts.into_iter().enumerate() {
-            self.send_part(packet.tag(), seq as u8, total, part)?;
+            self.send_part(packet.tag(), seq as u8, total, id, part)?;
         }
 
         Ok(())
     }
 
-    fn send_part(&mut self, tag: u8, seq: u8, total: u8, part: &[u8]) -> Result<(), ArpchatError> {
-        let data = &[PACKET_PREFIX, &[tag, seq, total], part].concat();
+    fn send_part(
+        &mut self,
+        tag: u8,
+        seq: u8,
+        total: u8,
+        id: Id,
+        part: &[u8],
+    ) -> Result<(), ArpchatError> {
+        let data = &[PACKET_PREFIX, &[tag, seq, total], &id, part].concat();
 
         // The length of the data must fit in a u8. This should also
         // guarantee that we'll be inside the MTU.
@@ -247,28 +261,39 @@ impl Channel {
         }
 
         if let &[tag, seq, total, ref inner @ ..] = &data[PACKET_PREFIX.len()..] {
-            let key = (tag, total);
+            Ok(try {
+                let id: Id = inner[..ID_SIZE].try_into().ok()?;
+                let inner = &inner[ID_SIZE..];
 
-            if let Some(parts) = self.buffer.get_mut(&key) {
-                parts[seq as usize] = inner.to_vec();
-            } else {
-                let mut parts = vec![vec![]; total as usize + 1];
-                parts[seq as usize] = inner.to_vec();
-                self.buffer.insert(key, parts);
-            }
+                // Skip if we already have this packet.
+                if self.recent.contains(&id) {
+                    None?;
+                }
 
-            // SAFETY: Guaranteed to exist because it's populated directly above.
-            let parts = unsafe { self.buffer.get(&key).unwrap_unchecked() };
+                if let Some(parts) = self.buffer.get_mut(&id) {
+                    parts[seq as usize] = inner.to_vec();
+                } else {
+                    let mut parts = vec![vec![]; total as usize + 1];
+                    parts[seq as usize] = inner.to_vec();
+                    self.buffer.insert(id, parts);
+                }
 
-            if parts.iter().all(|p| !p.is_empty()) {
+                // SAFETY: Guaranteed to exist because it's populated directly above.
+                let parts = unsafe { self.buffer.get(&id).unwrap_unchecked() };
+
+                // Short-circuit if we don't have all the parts yet.
+                if !parts.iter().all(|p| !p.is_empty()) {
+                    None?;
+                }
+
+                // Put the packet together.
                 let packet = Packet::deserialize(tag, &parts.concat());
                 if packet.is_some() {
-                    self.buffer.remove(&key);
+                    self.buffer.remove(&id);
+                    self.recent.push(id);
                 }
-                Ok(packet)
-            } else {
-                Ok(None)
-            }
+                packet?
+            })
         } else {
             Ok(None)
         }
