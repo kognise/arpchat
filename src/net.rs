@@ -337,10 +337,15 @@ impl Channel {
 
                 // Put the packet together.
                 let packet = Packet::deserialize(tag, &parts.concat());
+
                 if packet.is_some() {
+                    log::info!("received a {} packet", tag);
                     self.buffer.remove(&id);
                     self.recent.push(id);
+                } else {
+                    log::warn!("skipped a {} packet", tag);
                 }
+
                 packet?
             })
         } else {

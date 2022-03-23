@@ -91,8 +91,13 @@ pub(super) fn start_net_thread(tx: Sender<UICommand>, rx: Receiver<NetCommand>) 
                         Some((_, username)) => username.clone(),
                         None => "unknown".to_string(),
                     };
+
+                    let id = u64::from_be_bytes(id);
+                    let author_id = u64::from_be_bytes(author);
+                    log::info!("message {id} in {channel} from {author_id} {username}");
+
                     tx.send(UICommand::NewMessage {
-                        id: u64::from_be_bytes(id),
+                        id,
                         username,
                         channel,
                         message,
@@ -107,6 +112,8 @@ pub(super) fn start_net_thread(tx: Sender<UICommand>, rx: Receiver<NetCommand>) 
                     }
                 }
                 Some(Packet::Presence(pres_id, is_join, username)) => {
+                    log::info!("presence({is_join}) {username}");
+
                     match online.insert(pres_id, (Instant::now(), username.clone())) {
                         Some((_, former)) => {
                             tx.send(UICommand::PresenceUpdate(
@@ -141,8 +148,11 @@ pub(super) fn start_net_thread(tx: Sender<UICommand>, rx: Receiver<NetCommand>) 
                         tx.send(UICommand::RemovePresence(id, username)).unwrap();
                     }
                 }
-                Some(Packet::Reaction(i, c)) => {
-                    tx.send(UICommand::Reaction(u64::from_be_bytes(i), c)).unwrap();
+                Some(Packet::Reaction(id, character)) => {
+                    let id = u64::from_be_bytes(id);
+                    log::info!("reaction {character} for {id}");
+
+                    tx.send(UICommand::Reaction(id, character)).unwrap();
                 }
                 None => {}
             }

@@ -60,7 +60,7 @@ pub fn run() {
                             parent.add_child(
                                 LinearLayout::horizontal()
                                     .child(
-                                        TextView::new(format!("[{username}] #{id} {message}"))
+                                        TextView::new(format!("[{username}] {message}"))
                                             .full_width(),
                                     )
                                     .child(
@@ -195,11 +195,6 @@ pub fn run() {
                     update_title(&mut siv, &username, &interface, &current_channel);
                 }
                 UICommand::Reaction(id, character) => {
-                    append_txt(
-                        &mut siv,
-                        "chat_inner",
-                        format!("> received reaction").dark_grey().to_string(),
-                    );
                     siv.call_on_name(&format!("{id}_message"), |view: &mut LinearLayout| {
                         view.add_child(TextView::new(character));
                     });
