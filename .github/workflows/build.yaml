@@ -19,7 +19,7 @@ jobs:
 
       - uses: Swatinem/rust-cache@v1
         with:
-          sharedKey: overengineering
+          sharedKey: arpchat
       
       - uses: actions-rs/cargo@v1
         with:
