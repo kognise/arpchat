@@ -5,7 +5,7 @@ pub enum ArpchatError {
     #[error("unknown channel type, only eth is supported")]
     UnknownChannelType,
 
-    #[error("error getting channel")]
+    #[error("error getting channel, might be missing permissions")]
     ChannelError(#[from] std::io::Error),
 
     #[error("invalid interface {0}")]
@@ -14,7 +14,7 @@ pub enum ArpchatError {
     #[error("no mac address")]
     NoMAC,
 
-    #[error("couldn't capture packet, permission error?")]
+    #[error("couldn't capture packet")]
     CaptureFailed,
 
     #[error("couldn't serialize arp packet")]
