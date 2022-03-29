@@ -28,6 +28,8 @@ if you wanted, you could probably split off the networking part of this and use 
 
 not only are join and leave notifications a thing, i built an entire presence discovery and heartbeat system to see an updated list of other online users. ironically, part of this serves a similar purpose to arp itself.
 
+for more information on how this all works technically, check out [the little article i wrote](https://kognise.dev/writing/arp).
+
 ## running
 
 if you actually want to install this for some reason, you can get it from [the releases page](https://github.com/kognise/arpchat/releases/latest).
