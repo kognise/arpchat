@@ -5,6 +5,7 @@ use cursive::view::ScrollStrategy;
 use cursive::views::{EditView, LinearLayout, Panel};
 use cursive::Cursive;
 
+use super::dialog::channel::show_channel_dialog;
 use super::dialog::ether_type::show_ether_type_dialog;
 use super::dialog::username::show_username_dialog;
 use super::util::UICommand;
@@ -18,6 +19,10 @@ pub fn init_app(siv: &mut Cursive, ui_tx: Sender<UICommand>) {
         .add_leaf("switch protocol", {
             let ui_tx = ui_tx.clone();
             move |siv| show_ether_type_dialog(siv, ui_tx.clone())
+        })
+        .add_leaf("set channel", {
+            let ui_tx = ui_tx.clone();
+            move |siv| show_channel_dialog(siv, ui_tx.clone())
         })
         .add_leaf("quit", |siv| siv.quit());
     siv.set_autohide_menu(false);

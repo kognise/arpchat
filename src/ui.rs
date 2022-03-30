@@ -7,6 +7,7 @@ mod net_thread;
 mod util;
 
 mod dialog {
+    pub mod channel;
     pub mod ether_type;
     pub mod interface;
     pub mod username;
@@ -16,16 +17,19 @@ use std::thread;
 
 use crossbeam_channel::unbounded;
 use cursive::backends::crossterm::crossterm::style::Stylize;
-use cursive::views::{Dialog, LinearLayout};
+use cursive::traits::{Nameable, Resizable};
+use cursive::views::{Dialog, EditView, LinearLayout, TextView};
 
 use self::config::CONFIG;
 use self::dialog::interface::show_iface_dialog;
 use self::util::{
-    append_txt, update_or_append_txt, update_title, NetCommand, UICommand, UpdatePresenceKind,
+    append_txt, clear_children, update_or_append_txt, update_title, NetCommand, UICommand,
+    UpdatePresenceKind,
 };
 
 pub fn run() {
-    let (mut username, mut interface) = ("anonymous".to_string(), "".to_string());
+    let (mut username, mut interface, mut current_channel) =
+        ("anonymous".to_string(), "".to_string(), "".to_string());
 
     let (ui_tx, ui_rx) = unbounded::<UICommand>();
     let (net_tx, net_rx) = unbounded::<NetCommand>();
@@ -44,8 +48,44 @@ pub fn run() {
     while siv.is_running() {
         while let Ok(cmd) = ui_rx.try_recv() {
             match cmd {
-                UICommand::NewMessage(username, msg) => {
-                    append_txt(&mut siv, "chat_inner", format!("[{username}] {msg}"));
+                UICommand::NewMessage {
+                    id,
+                    username,
+                    channel,
+                    message,
+                } => {
+                    if channel == current_channel {
+                        let net_tx = net_tx.clone();
+                        siv.call_on_name("chat_inner", move |parent: &mut LinearLayout| {
+                            parent.add_child(
+                                LinearLayout::horizontal()
+                                    .child(
+                                        TextView::new(format!("[{username}] {message}"))
+                                            .full_width(),
+                                    )
+                                    .child(
+                                        EditView::new()
+                                            .max_content_width(3)
+                                            .on_submit(move |siv, reaction| {
+                                                if let Some(character) = reaction.chars().next() {
+                                                    siv.call_on_name(
+                                                        &format!("{id}_reaction_box"),
+                                                        |input: &mut EditView| {
+                                                            input.set_content("");
+                                                        },
+                                                    );
+                                                    net_tx
+                                                        .send(NetCommand::Reaction(id, character))
+                                                        .unwrap();
+                                                }
+                                            })
+                                            .with_name(format!("{id}_reaction_box"))
+                                            .min_width(3),
+                                    )
+                                    .with_name(format!("{id}_message")),
+                            );
+                        });
+                    }
                 }
                 UICommand::UpdateUsername(new_username) => {
                     if new_username == username {
@@ -62,14 +102,14 @@ pub fn run() {
                     net_tx
                         .send(NetCommand::UpdateUsername(username.clone()))
                         .unwrap();
-                    update_title(&mut siv, &username, &interface);
+                    update_title(&mut siv, &username, &interface, &current_channel);
                 }
                 UICommand::SetInterface(new_interface) => {
                     interface = new_interface;
                     net_tx
                         .send(NetCommand::SetInterface(interface.clone()))
                         .unwrap();
-                    update_title(&mut siv, &username, &interface);
+                    update_title(&mut siv, &username, &interface, &current_channel);
 
                     let mut config = CONFIG.lock().unwrap();
                     config.interface = Some(interface.clone());
@@ -88,7 +128,9 @@ pub fn run() {
                     } else if msg == "/online" {
                         net_tx.send(NetCommand::PauseHeartbeat(false)).unwrap();
                     } else if !msg.is_empty() {
-                        net_tx.send(NetCommand::SendMessage(msg)).unwrap();
+                        net_tx
+                            .send(NetCommand::SendMessage(current_channel.clone(), msg))
+                            .unwrap();
                     }
                 }
                 UICommand::PresenceUpdate(id, username, is_inactive, kind) => {
@@ -146,6 +188,16 @@ pub fn run() {
                             .button("Exit", |siv| siv.quit()),
                     );
                     break;
+                }
+                UICommand::SetChannel(channel) => {
+                    current_channel = channel;
+                    clear_children(&mut siv, "chat_inner");
+                    update_title(&mut siv, &username, &interface, &current_channel);
+                }
+                UICommand::Reaction(id, character) => {
+                    siv.call_on_name(&format!("{id}_message"), |view: &mut LinearLayout| {
+                        view.add_child(TextView::new(character));
+                    });
                 }
             }
             siv.refresh();

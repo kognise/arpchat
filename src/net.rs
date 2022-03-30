@@ -20,6 +20,7 @@ const ARP_OPER: &[u8] = &[0, 1]; // Operation (Request)
 const PACKET_PREFIX: &[u8] = b"uwu";
 
 pub const ID_SIZE: usize = 8;
+pub const LEN_PREFIX_SIZE: usize = 8;
 pub type Id = [u8; ID_SIZE];
 
 // Tag, seq, and total, are each one byte, thus the `+ 3`.
@@ -69,29 +70,53 @@ impl Display for EtherType {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Packet {
-    Message(Id, String),
+    Message {
+        id: Id,
+        author: Id,
+        channel: String,
+        message: String,
+    },
     PresenceReq,
     Presence(Id, bool, String),
     Disconnect(Id),
+    Reaction(Id, char),
 }
 
 impl Packet {
     fn tag(&self) -> u8 {
         match self {
-            Packet::Message(_, _) => 0,
+            Packet::Message { .. } => 0,
             Packet::PresenceReq => 1,
             Packet::Presence(_, _, _) => 2,
             Packet::Disconnect(_) => 3,
+            Packet::Reaction(_, _) => 4,
         }
     }
 
     fn deserialize(tag: u8, data: &[u8]) -> Option<Self> {
         match tag {
             0 => {
-                let id: Id = data[..ID_SIZE].try_into().ok()?;
-                let raw_str = smaz::decompress(&data[ID_SIZE..]).ok()?;
+                let id_start = 0;
+                let user_id_start = id_start + ID_SIZE;
+                let chan_len_start = user_id_start + ID_SIZE;
+                let chan_start = chan_len_start + LEN_PREFIX_SIZE;
+                let chan_len =
+                    u64::from_be_bytes(data[chan_len_start..chan_start].try_into().ok()?);
+                let str_start = chan_start + chan_len as usize;
+
+                let id: Id = data[id_start..user_id_start].try_into().ok()?;
+                let user_id: Id = data[user_id_start..chan_len_start].try_into().ok()?;
+                let chan = String::from_utf8(data[chan_start..str_start].to_vec()).ok()?;
+                let raw_str = smaz::decompress(&data[str_start..]).ok()?;
+
                 let str = String::from_utf8(raw_str).ok()?;
-                Some(Packet::Message(id, str))
+
+                Some(Packet::Message {
+                    id,
+                    author: user_id,
+                    channel: chan,
+                    message: str,
+                })
             }
             1 => Some(Packet::PresenceReq),
             2 => {
@@ -101,18 +126,42 @@ impl Packet {
                 Some(Packet::Presence(id, is_join, str))
             }
             3 => Some(Packet::Disconnect(data.try_into().ok()?)),
+            4 => {
+                let id: Id = data[..ID_SIZE].try_into().ok()?;
+                let raw: [u8; 4] = data[ID_SIZE..].try_into().ok()?;
+
+                Some(Packet::Reaction(
+                    id,
+                    char::from_u32(u32::from_be_bytes(raw))?,
+                ))
+            }
             _ => None,
         }
     }
 
     fn serialize(&self) -> Vec<u8> {
         match self {
-            Packet::Message(id, msg) => [id as &[u8], &smaz::compress(msg.as_bytes())].concat(),
+            Packet::Message {
+                id,
+                author,
+                channel,
+                message,
+            } => [
+                id as &[u8],
+                author as &[u8],
+                &(channel.len() as u64).to_be_bytes(),
+                channel.as_bytes(),
+                &smaz::compress(message.as_bytes()),
+            ]
+            .concat(),
             Packet::PresenceReq => vec![],
             Packet::Presence(id, is_join, str) => {
                 [id as &[u8], &[*is_join as u8], str.as_bytes()].concat()
             }
             Packet::Disconnect(id) => id.to_vec(),
+            Packet::Reaction(id, character) => {
+                [id as &[u8], &u32::to_be_bytes(*character as u32)].concat()
+            }
         }
     }
 }
@@ -288,10 +337,15 @@ impl Channel {
 
                 // Put the packet together.
                 let packet = Packet::deserialize(tag, &parts.concat());
+
                 if packet.is_some() {
+                    log::info!("received a {} packet", tag);
                     self.buffer.remove(&id);
                     self.recent.push(id);
+                } else {
+                    log::warn!("skipped a {} packet", tag);
                 }
+
                 packet?
             })
         } else {

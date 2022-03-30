@@ -23,7 +23,7 @@ enum NetThreadState {
 }
 
 pub(super) fn start_net_thread(tx: Sender<UICommand>, rx: Receiver<NetCommand>) {
-    let id: Id = rand::thread_rng().gen();
+    let my_id: Id = rand::thread_rng().gen();
     let mut username: String = "".to_string();
     let mut channel: Option<Channel> = None;
 
@@ -58,7 +58,12 @@ pub(super) fn start_net_thread(tx: Sender<UICommand>, rx: Receiver<NetCommand>) 
             match rx.try_recv() {
                 Ok(NetCommand::SetInterface(_)) => Err(ArpchatError::InterfaceAlreadySet)?,
                 Ok(NetCommand::SetEtherType(ether_type)) => channel.set_ether_type(ether_type),
-                Ok(NetCommand::SendMessage(msg)) => channel.send(Packet::Message(id, msg))?,
+                Ok(NetCommand::SendMessage(chan, msg)) => channel.send(Packet::Message {
+                    id: rand::thread_rng().gen(), // let's hope it never collides
+                    author: my_id,
+                    channel: chan,
+                    message: msg,
+                })?,
                 Ok(NetCommand::UpdateUsername(new_username)) => {
                     username = new_username;
                     if state == NetThreadState::NeedsUsername {
@@ -67,29 +72,50 @@ pub(super) fn start_net_thread(tx: Sender<UICommand>, rx: Receiver<NetCommand>) 
                     }
                 }
                 Ok(NetCommand::Terminate) => {
-                    let _ = channel.send(Packet::Disconnect(id));
+                    let _ = channel.send(Packet::Disconnect(my_id));
                     break;
                 }
                 Ok(NetCommand::PauseHeartbeat(pause)) => pause_heartbeat = pause,
+                Ok(NetCommand::Reaction(i, c)) => {
+                    channel.send(Packet::Reaction(i.to_be_bytes(), c)).unwrap()
+                }
                 Err(_) => {}
             }
 
             match channel.try_recv()? {
-                Some(Packet::Message(id, msg)) => {
-                    let username = match online.get(&id) {
+                Some(Packet::Message {
+                    id,
+                    author,
+                    channel,
+                    message,
+                }) => {
+                    let username = match online.get(&author) {
                         Some((_, username)) => username.clone(),
                         None => "unknown".to_string(),
                     };
-                    tx.send(UICommand::NewMessage(username, msg)).unwrap()
+
+                    let id = u64::from_be_bytes(id);
+                    let author_id = u64::from_be_bytes(author);
+                    log::info!("message {id} in {channel} from {author_id} {username}");
+
+                    tx.send(UICommand::NewMessage {
+                        id,
+                        username,
+                        channel,
+                        message,
+                    })
+                    .unwrap()
                 }
                 Some(Packet::PresenceReq) => {
                     if state == NetThreadState::NeedsInitialPresence {
-                        channel.send(Packet::Presence(id, true, username.clone()))?;
+                        channel.send(Packet::Presence(my_id, true, username.clone()))?;
                     } else {
-                        channel.send(Packet::Presence(id, false, username.clone()))?;
+                        channel.send(Packet::Presence(my_id, false, username.clone()))?;
                     }
                 }
                 Some(Packet::Presence(pres_id, is_join, username)) => {
+                    log::info!("presence({is_join}) {username}");
+
                     match online.insert(pres_id, (Instant::now(), username.clone())) {
                         Some((_, former)) => {
                             tx.send(UICommand::PresenceUpdate(
@@ -105,7 +131,7 @@ pub(super) fn start_net_thread(tx: Sender<UICommand>, rx: Receiver<NetCommand>) 
                                 pres_id,
                                 username,
                                 false,
-                                if offline.remove(&id) || is_join {
+                                if offline.remove(&my_id) || is_join {
                                     UpdatePresenceKind::JoinOrReconnect
                                 } else {
                                     UpdatePresenceKind::Boring
@@ -115,7 +141,7 @@ pub(super) fn start_net_thread(tx: Sender<UICommand>, rx: Receiver<NetCommand>) 
                         }
                     }
 
-                    if pres_id == id {
+                    if pres_id == my_id {
                         state = NetThreadState::Ready;
                     }
                 }
@@ -124,12 +150,18 @@ pub(super) fn start_net_thread(tx: Sender<UICommand>, rx: Receiver<NetCommand>) 
                         tx.send(UICommand::RemovePresence(id, username)).unwrap();
                     }
                 }
+                Some(Packet::Reaction(id, character)) => {
+                    let id = u64::from_be_bytes(id);
+                    log::info!("reaction {character} for {id}");
+
+                    tx.send(UICommand::Reaction(id, character)).unwrap();
+                }
                 None => {}
             }
 
             if last_heartbeat.elapsed() > HEARTBEAT_INTERVAL && state == NetThreadState::Ready {
                 if !pause_heartbeat {
-                    channel.send(Packet::Presence(id, false, username.clone()))?;
+                    channel.send(Packet::Presence(my_id, false, username.clone()))?;
                 }
 
                 let mut to_remove = vec![];
