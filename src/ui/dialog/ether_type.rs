@@ -33,7 +33,7 @@ pub fn show_ether_type_dialog(siv: &mut Cursive, ui_tx: Sender<UICommand>) {
                             .with_all(EtherType::iter().map(|et| (et.to_string(), et)))
                             .selected(preferred_index.unwrap_or_default())
                             .on_submit(move |siv, et: &EtherType| {
-                                ui_tx.send(UICommand::SetEtherType(*et)).unwrap();
+                                ui_tx.try_send(UICommand::SetEtherType(*et)).unwrap();
                                 siv.pop_layer();
                             }),
                     ),

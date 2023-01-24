@@ -31,7 +31,7 @@ pub fn show_username_dialog(siv: &mut Cursive, ui_tx: Sender<UICommand>, init_af
                         let ui_tx = ui_tx.clone();
                         move |siv, username| {
                             ui_tx
-                                .send(UICommand::UpdateUsername(username.to_string()))
+                                .try_send(UICommand::UpdateUsername(username.to_string()))
                                 .unwrap();
                             siv.pop_layer();
                             if init_after {
@@ -46,7 +46,7 @@ pub fn show_username_dialog(siv: &mut Cursive, ui_tx: Sender<UICommand>, init_af
                     .call_on_name("username_input", |input: &mut EditView| input.get_content())
                     .unwrap();
                 ui_tx
-                    .send(UICommand::UpdateUsername(username.to_string()))
+                    .try_send(UICommand::UpdateUsername(username.to_string()))
                     .unwrap();
                 siv.pop_layer();
                 if init_after {

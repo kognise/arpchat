@@ -14,14 +14,16 @@ mod dialog {
 
 use std::thread;
 
+use chrono::Timelike;
 use crossbeam_channel::unbounded;
 use cursive::backends::crossterm::crossterm::style::Stylize;
-use cursive::views::{Dialog, LinearLayout};
+use cursive::views::{Dialog, LinearLayout, NamedView, TextView};
 
 use self::config::CONFIG;
 use self::dialog::interface::show_iface_dialog;
 use self::util::{
-    append_txt, update_or_append_txt, update_title, NetCommand, UICommand, UpdatePresenceKind,
+    append_txt, color_from_id, ring_bell, update_or_append_txt, update_title, NetCommand,
+    UICommand, UpdatePresenceKind,
 };
 
 pub fn run() {
@@ -44,8 +46,31 @@ pub fn run() {
     while siv.is_running() {
         while let Ok(cmd) = ui_rx.try_recv() {
             match cmd {
-                UICommand::NewMessage(username, msg) => {
-                    append_txt(&mut siv, "chat_inner", format!("[{username}] {msg}"));
+                UICommand::AlertUser => ring_bell(),
+                UICommand::NewMessage(id, username, msg, is_eager) => {
+                    let now = chrono::offset::Local::now();
+
+                    let mut print = format!(
+                        "{time} [{username}] {msg}",
+                        time = format!(
+                            "{hours:02}:{mins:02}:{secs:02}",
+                            hours = now.hour(),
+                            mins = now.minute(),
+                            secs = now.second()
+                        )
+                        .dark_grey(),
+                        username = username.with(color_from_id(&id)),
+                    );
+                    if is_eager {
+                        print += &" sending...".dark_grey().to_string();
+                    }
+
+                    update_or_append_txt(&mut siv, "chat_inner", &msg, print);
+                    if !is_eager {
+                        siv.call_on_name(&msg, |child: &mut NamedView<TextView>| {
+                            child.set_name("");
+                        });
+                    }
                 }
                 UICommand::UpdateUsername(new_username) => {
                     if new_username == username {
@@ -60,14 +85,14 @@ pub fn run() {
                     }
 
                     net_tx
-                        .send(NetCommand::UpdateUsername(username.clone()))
+                        .try_send(NetCommand::UpdateUsername(username.clone()))
                         .unwrap();
                     update_title(&mut siv, &username, &interface);
                 }
                 UICommand::SetInterface(new_interface) => {
                     interface = new_interface;
                     net_tx
-                        .send(NetCommand::SetInterface(interface.clone()))
+                        .try_send(NetCommand::SetInterface(interface.clone()))
                         .unwrap();
                     update_title(&mut siv, &username, &interface);
 
@@ -76,7 +101,9 @@ pub fn run() {
                     config.save();
                 }
                 UICommand::SetEtherType(ether_type) => {
-                    net_tx.send(NetCommand::SetEtherType(ether_type)).unwrap();
+                    net_tx
+                        .try_send(NetCommand::SetEtherType(ether_type))
+                        .unwrap();
 
                     let mut config = CONFIG.lock().unwrap();
                     config.ether_type = Some(ether_type);
@@ -84,11 +111,11 @@ pub fn run() {
                 }
                 UICommand::SendMessage(msg) => {
                     if msg == "/offline" {
-                        net_tx.send(NetCommand::PauseHeartbeat(true)).unwrap();
+                        net_tx.try_send(NetCommand::PauseHeartbeat(true)).unwrap();
                     } else if msg == "/online" {
-                        net_tx.send(NetCommand::PauseHeartbeat(false)).unwrap();
+                        net_tx.try_send(NetCommand::PauseHeartbeat(false)).unwrap();
                     } else if !msg.is_empty() {
-                        net_tx.send(NetCommand::SendMessage(msg)).unwrap();
+                        net_tx.try_send(NetCommand::SendMessage(msg)).unwrap();
                     }
                 }
                 UICommand::PresenceUpdate(id, username, is_inactive, kind) => {
@@ -119,7 +146,7 @@ pub fn run() {
                         &format!("{id:x?}_presence"),
                         match is_inactive {
                             true => format!("- {username}").dark_grey().to_string(),
-                            false => format!("* {username}"),
+                            false => format!("{} {username}", "*".with(color_from_id(&id))),
                         },
                     );
                 }
@@ -153,7 +180,7 @@ pub fn run() {
         siv.step();
     }
 
-    net_tx.send(NetCommand::Terminate).unwrap();
+    net_tx.try_send(NetCommand::Terminate).unwrap();
     net_thread.join().unwrap();
     CONFIG.lock().unwrap().save();
 }

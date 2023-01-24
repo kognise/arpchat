@@ -48,7 +48,9 @@ pub fn init_app(siv: &mut Cursive, ui_tx: Sender<UICommand>) {
                                     siv.call_on_name("input", |input: &mut EditView| {
                                         input.set_content("");
                                     });
-                                    ui_tx.send(UICommand::SendMessage(msg.to_string())).unwrap();
+                                    ui_tx
+                                        .try_send(UICommand::SendMessage(msg.to_string()))
+                                        .unwrap();
                                 })
                                 .with_name("input"),
                         )

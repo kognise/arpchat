@@ -39,7 +39,9 @@ pub fn show_iface_dialog(siv: &mut Cursive, ui_tx: Sender<UICommand>) {
                     }))
                     .selected(preferred_index.unwrap_or_default())
                     .on_submit(move |siv, name: &String| {
-                        ui_tx.send(UICommand::SetInterface(name.clone())).unwrap();
+                        ui_tx
+                            .try_send(UICommand::SetInterface(name.clone()))
+                            .unwrap();
                         siv.pop_layer();
                         show_username_dialog(siv, ui_tx.clone(), true);
                     }),

@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 use std::fmt::{Debug, Display};
+use std::io::ErrorKind;
 use std::slice::Iter;
+use std::time::Duration;
 
 use pnet::datalink::{
     Channel as DataLinkChannel, DataLinkReceiver, DataLinkSender, NetworkInterface,
@@ -150,7 +152,13 @@ pub struct Channel {
 
 impl Channel {
     pub fn from_interface(interface: NetworkInterface) -> Result<Self, ArpchatError> {
-        let (tx, rx) = match pnet::datalink::channel(&interface, Default::default()) {
+        let (tx, rx) = match pnet::datalink::channel(
+            &interface,
+            pnet::datalink::Config {
+                read_timeout: Some(Duration::from_millis(100)),
+                ..Default::default()
+            },
+        ) {
             Ok(DataLinkChannel::Ethernet(tx, rx)) => (tx, rx),
             Ok(_) => return Err(ArpchatError::UnknownChannelType),
             Err(e) => return Err(ArpchatError::ChannelError(e)),
@@ -239,7 +247,16 @@ impl Channel {
     }
 
     pub fn try_recv(&mut self) -> Result<Option<Packet>, ArpchatError> {
-        let packet = self.rx.next().map_err(|_| ArpchatError::CaptureFailed)?;
+        let packet = match self.rx.next() {
+            Ok(packet) => packet,
+            Err(e) => {
+                if e.kind() == ErrorKind::TimedOut {
+                    return Ok(None);
+                } else {
+                    return Err(ArpchatError::CaptureFailed);
+                }
+            }
+        };
         let packet = match EthernetPacket::new(packet) {
             Some(packet) => packet,
             None => return Ok(None),

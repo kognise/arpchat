@@ -1,5 +1,4 @@
 #![feature(try_blocks)]
-#![feature(derive_default_enum)]
 
 pub mod error;
 pub mod net;
