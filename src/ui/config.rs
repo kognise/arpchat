@@ -1,6 +1,6 @@
 use once_cell::sync::Lazy;
 use std::path::PathBuf;
-use std::{fs, sync::Mutex};
+use std::{fs, str, sync::Mutex};
 
 use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
@@ -18,12 +18,13 @@ impl Config {
     pub fn load() -> Self {
         let data: Option<Vec<u8>> = try { fs::read(Self::get_config_path()?).ok()? };
         let data = data.unwrap_or_default();
-        toml::from_slice(&data).unwrap_or_default()
+        let data: &str = str::from_utf8(&data).unwrap_or_default();
+        toml::from_str(data).unwrap_or_default()
     }
 
     pub fn save(&self) {
         let _: Option<()> = try {
-            let data = toml::to_vec(&self).ok()?;
+            let data = toml::to_string(&self).ok()?;
             let path = Self::get_config_path()?;
             fs::create_dir_all(path.parent()?).ok()?;
             fs::write(path, data).ok()?;
