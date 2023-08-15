@@ -1,5 +1,7 @@
 # arpchat
 
+![banner](https://doggo.ninja/fH9GKt.png)
+
 so... you know arp? the protocol your computer uses to find the mac addresses of other computers on your network? yeah. that.
 
 i thought it would be a great idea to hijack it to make a chat app :)
@@ -57,5 +59,3 @@ on windows, download the [WinPcap Developer's Pack](https://www.winpcap.org/deve
 ```sh
 cargo build
 ```
-
-![banner](https://doggo.ninja/fH9GKt.png)
